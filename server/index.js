@@ -457,10 +457,12 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const judgeId = room.players[room.currentJudgeIndex]?.id;
-    if (socket.id === judgeId) {
-      socket.emit('error_msg', { message: 'השופט לא יכול להחליף קלפים' });
-      return;
+    if (room.gameMode !== 'vote') {
+      const judgeId = room.players[room.currentJudgeIndex]?.id;
+      if (socket.id === judgeId) {
+        socket.emit('error_msg', { message: 'השופט לא יכול להחליף קלפים' });
+        return;
+      }
     }
 
     if (player._swappedThisRound) {
