@@ -39,7 +39,7 @@ export default function Home() {
           📖 איך משחקים?
         </button>
         <a
-          href="mailto:stacy2710@gmail.com?subject=הצעה ��קלף חדש - קלפים נגד הקהילה&body=יש לי רעיון לקלף:%0A%0A"
+          href="mailto:stacy2710@gmail.com?subject=%D7%94%D7%A6%D7%A2%D7%94%20%D7%9C%D7%A7%D7%9C%D7%A3%20%D7%97%D7%93%D7%A9%20-%20%D7%A7%D7%9C%D7%A4%D7%99%D7%9D%20%D7%A0%D7%92%D7%93%20%D7%94%D7%A7%D7%94%D7%99%D7%9C%D7%94&body=%D7%99%D7%A9%20%D7%9C%D7%99%20%D7%A8%D7%A2%D7%99%D7%95%D7%9F%20%D7%9C%D7%A7%D7%9C%D7%A3%3A%0A%0A"
           className="text-muted text-sm underline hover:text-gold transition-colors"
         >
           💡 הצעות לקלפים חדשים
