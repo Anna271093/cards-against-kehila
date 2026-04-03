@@ -307,8 +307,20 @@ io.on('connection', (socket) => {
 
     socket.join(code);
 
-    // Notify everyone in the room
-    io.to(code).emit('player_joined', roomSnapshot(result.room));
+    // If the game is already in progress, deal cards to the new player
+    if (result.room.state !== 'lobby') {
+      const newPlayer = result.room.players.find((p) => p.id === socket.id);
+      if (newPlayer && newPlayer.hand.length === 0) {
+        dealCards(result.room, socket.id, 5);
+        newPlayer.hasSubmitted = true; // can't submit this round — joined mid-round
+      }
+    }
+
+    // Send the joining player their private state
+    socket.emit('player_joined', roomSnapshot(result.room, socket.id));
+
+    // Notify everyone else in the room
+    socket.to(code).emit('player_joined', roomSnapshot(result.room));
   });
 
   // ----- update_settings -----
@@ -751,6 +763,20 @@ io.on('connection', (socket) => {
 
       // Send the player their current state
       socket.emit('rejoin_success', roomSnapshot(room, socket.id));
+
+      // If we're in the judging phase, re-send submissions so the screen isn't empty
+      if (room.state === 'judging' && room._submissionOrder && room.submissions.length > 0) {
+        const shuffled = room._submissionOrder.map((origIdx) => ({
+          cards: room.submissions[origIdx].cards.map((c) => ({ text: c.text })),
+        }));
+        const isVoteMode = room.gameMode === 'vote';
+        const judgeId = room.players[room.currentJudgeIndex]?.id;
+
+        // In classic mode, only the judge sees submissions. In vote mode, everyone does.
+        if (isVoteMode || socket.id === judgeId) {
+          socket.emit('all_submitted', { submissions: shuffled, voteMode: isVoteMode });
+        }
+      }
 
       // Notify others
       socket.to(roomCode).emit('player_reconnected', {

@@ -95,8 +95,8 @@ export function joinRoom(roomCode, playerId, playerName) {
     return { success: false, error: 'החדר לא נמצא' }; // Room not found
   }
 
-  if (room.state !== 'lobby') {
-    return { success: false, error: 'המשחק כבר התחיל' }; // Game already started
+  if (room.state === 'finished') {
+    return { success: false, error: 'המשחק כבר הסתיים' }; // Game already finished
   }
 
   if (room.players.length >= 20) {
