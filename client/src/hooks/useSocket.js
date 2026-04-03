@@ -163,16 +163,7 @@ export default function useSocket() {
       s.current.setError(message);
     });
 
-    // Keep-alive ping: prevent Render free tier from sleeping while in a game
-    const keepAlive = setInterval(() => {
-      const { roomCode } = useGameStore.getState();
-      if (roomCode) {
-        fetch('/api/health').catch(() => {});
-      }
-    }, 5 * 60 * 1000); // every 5 minutes
-
     return () => {
-      clearInterval(keepAlive);
       socket.off('connect');
       socket.off('disconnect');
       socket.off('room_created');
