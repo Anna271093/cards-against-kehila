@@ -17,6 +17,7 @@ export default function GameBoard({ emit }) {
   const submittedCount = useGameStore((s) => s.submittedCount);
   const totalPlayers = useGameStore((s) => s.totalPlayers);
   const selectCard = useGameStore((s) => s.selectCard);
+  const canSwap = useGameStore((s) => s.canSwap);
 
   const judge = players[currentJudgeIndex];
   const isJudge = judge?.id === playerId;
@@ -26,6 +27,10 @@ export default function GameBoard({ emit }) {
   const handleSubmit = () => {
     if (selectedCards.length !== requiredPick) return;
     emit('submit_card', { roomCode, cardIndices: selectedCards });
+  };
+
+  const handleSwap = (cardIndex) => {
+    emit('swap_card', { roomCode, cardIndex });
   };
 
   return (
@@ -77,7 +82,7 @@ export default function GameBoard({ emit }) {
               {myHand.map((card, index) => (
                 <div
                   key={index}
-                  className="animate-slideUp"
+                  className="animate-slideUp relative"
                   style={{ animationDelay: `${index * 0.05}s` }}
                 >
                   <WhiteCard
@@ -92,6 +97,15 @@ export default function GameBoard({ emit }) {
                     }
                     onClick={() => selectCard(index)}
                   />
+                  {canSwap && !selectedCards.includes(index) && (
+                    <button
+                      className="absolute top-1 left-1 text-xs bg-black/60 text-muted hover:text-white rounded-full w-6 h-6 flex items-center justify-center transition-colors"
+                      onClick={(e) => { e.stopPropagation(); handleSwap(index); }}
+                      title="החלף קלף"
+                    >
+                      🔄
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -109,6 +123,11 @@ export default function GameBoard({ emit }) {
           </div>
         </>
       )}
+
+      {/* Room code footer */}
+      <div className="text-center mt-4 pb-2">
+        <span className="text-xs text-secondary">קוד חדר: <span className="font-mono text-muted">{roomCode}</span></span>
+      </div>
     </div>
   );
 }

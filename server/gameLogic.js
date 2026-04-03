@@ -295,6 +295,7 @@ export function nextRound(room) {
   for (const player of room.players) {
     player.hasSubmitted = false;
     player.submittedCards = [];
+    player._swappedThisRound = false;
     const deficit = HAND_SIZE - player.hand.length;
     if (deficit > 0) {
       dealCards(room, player.id, deficit);

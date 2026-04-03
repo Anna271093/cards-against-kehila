@@ -30,6 +30,7 @@ const useGameStore = create((set, get) => ({
   myHand: [],
   selectedCards: [],
   hasSubmitted: false,
+  canSwap: true,
 
   // Round state
   submissions: [],       // for judge
@@ -89,6 +90,7 @@ const useGameStore = create((set, get) => ({
     } else if (snapshot.state === 'playing') {
       updates.screen = 'playing';
       updates.hasSubmitted = false;
+      updates.canSwap = true;
       updates.selectedCards = [];
       updates.submissions = [];
       updates.winnerThisRound = null;
@@ -162,6 +164,7 @@ const useGameStore = create((set, get) => ({
       myHand: [],
       selectedCards: [],
       hasSubmitted: false,
+      canSwap: true,
       submissions: [],
       submittedCount: 0,
       totalPlayers: 0,

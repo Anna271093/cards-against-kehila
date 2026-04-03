@@ -131,7 +131,11 @@ export default function useSocket() {
     });
 
     socket.on('round_skipped', () => {
-      // Timer expired, nobody submitted
+      // Timer expired, nobody submitted — server auto-advances
+    });
+
+    socket.on('card_swapped', ({ hand }) => {
+      useGameStore.setState({ myHand: hand, canSwap: false });
     });
 
     socket.on('error_msg', ({ message }) => {
@@ -159,6 +163,7 @@ export default function useSocket() {
       socket.off('judge_changed');
       socket.off('timer_tick');
       socket.off('round_skipped');
+      socket.off('card_swapped');
       socket.off('error_msg');
     };
   }, [socket]);

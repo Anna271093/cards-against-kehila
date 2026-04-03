@@ -27,6 +27,7 @@ import {
   isGameOver,
   getScoreboard,
   autoSubmit,
+  dealCards,
 } from './gameLogic.js';
 
 // ---------------------------------------------------------------------------
@@ -132,11 +133,32 @@ function handleTimerExpiry(room) {
   if (room.submissions.length > 0) {
     transitionToJudging(room);
   }
-  // If nobody submitted anything (edge case), skip to next round
+  // If nobody submitted anything (edge case), auto-advance to next round
   else {
     io.to(room.roomCode).emit('round_skipped', {
       reason: 'אף אחד לא הגיש קלפים',
     });
+
+    // Auto-advance after 3 seconds
+    setTimeout(() => {
+      if (!room || room.state === 'finished') return;
+
+      if (isGameOver(room)) {
+        room.state = 'finished';
+        clearRoomTimer(room.roomCode);
+        io.to(room.roomCode).emit('game_over', {
+          scoreboard: getScoreboard(room),
+          roomSnapshot: roomSnapshot(room),
+        });
+        return;
+      }
+
+      nextRound(room);
+      for (const player of room.players) {
+        io.to(player.id).emit('new_round', roomSnapshot(room, player.id));
+      }
+      startRoundTimer(room);
+    }, 3000);
   }
 }
 
@@ -380,6 +402,58 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ----- swap_card -----
+  socket.on('swap_card', ({ roomCode, cardIndex }) => {
+    if (rateLimited(socket.id)) return;
+
+    const room = getRoom(roomCode);
+    if (!room) {
+      socket.emit('error_msg', { message: 'החדר לא נמצא' });
+      return;
+    }
+    if (room.state !== 'playing') {
+      socket.emit('error_msg', { message: 'אפשר להחליף רק בזמן משחק' });
+      return;
+    }
+
+    const player = room.players.find((p) => p.id === socket.id);
+    if (!player) return;
+
+    if (player.hasSubmitted) {
+      socket.emit('error_msg', { message: 'כבר הגשת, אי אפשר להחליף' });
+      return;
+    }
+
+    const judgeId = room.players[room.currentJudgeIndex]?.id;
+    if (socket.id === judgeId) {
+      socket.emit('error_msg', { message: 'השופט לא יכול להחליף קלפים' });
+      return;
+    }
+
+    if (player._swappedThisRound) {
+      socket.emit('error_msg', { message: 'אפשר להחליף רק קלף אחד בסיבוב' });
+      return;
+    }
+
+    if (typeof cardIndex !== 'number' || cardIndex < 0 || cardIndex >= player.hand.length) {
+      socket.emit('error_msg', { message: 'קלף לא תקין' });
+      return;
+    }
+
+    // Remove the card from hand
+    player.hand.splice(cardIndex, 1);
+
+    // Deal one new card
+    dealCards(room, socket.id, 1);
+
+    player._swappedThisRound = true;
+
+    // Send updated hand back
+    socket.emit('card_swapped', {
+      hand: player.hand.map((c) => ({ text: c.text })),
+    });
+  });
+
   // ----- judge_pick -----
   socket.on('judge_pick', ({ roomCode, submissionIndex }) => {
     if (rateLimited(socket.id)) return;
@@ -529,11 +603,11 @@ io.on('connection', (socket) => {
     const room = getRoomByPlayerId(socket.id);
     if (!room) return;
 
-    // Grace period: wait 15 seconds before removing
+    // Grace period: wait 45 seconds before removing
     const timeout = setTimeout(() => {
       handlePlayerRemoval(socket.id, room.roomCode);
       disconnectTimers.delete(socket.id);
-    }, 15000);
+    }, 45000);
 
     disconnectTimers.set(socket.id, { timeout, roomCode: room.roomCode });
   });

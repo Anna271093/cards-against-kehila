@@ -67,6 +67,10 @@ export default function RevealScreen({ emit }) {
           ממתינים למארח...
         </p>
       )}
+
+      <div className="text-center pb-2">
+        <span className="text-xs text-secondary">קוד חדר: <span className="font-mono text-muted">{roomCode}</span></span>
+      </div>
     </div>
   );
 }

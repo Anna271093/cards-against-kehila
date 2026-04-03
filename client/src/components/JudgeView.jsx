@@ -43,6 +43,10 @@ export default function JudgeView({ emit }) {
             {judge?.name} בודק/ת את התשובות
           </p>
         </div>
+
+        <div className="text-center mt-4 pb-2">
+          <span className="text-xs text-secondary">קוד חדר: <span className="font-mono text-muted">{roomCode}</span></span>
+        </div>
       </div>
     );
   }
@@ -93,6 +97,10 @@ export default function JudgeView({ emit }) {
         >
           זה הזוכה! 🏆
         </button>
+      </div>
+
+      <div className="text-center mt-4 pb-2">
+        <span className="text-xs text-secondary">קוד חדר: <span className="font-mono text-muted">{roomCode}</span></span>
       </div>
     </div>
   );
