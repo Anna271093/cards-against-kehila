@@ -8,14 +8,16 @@ import GameBoard from './components/GameBoard';
 import JudgeView from './components/JudgeView';
 import RevealScreen from './components/RevealScreen';
 import GameOver from './components/GameOver';
+import ConnectionBanner from './components/ConnectionBanner';
 
 export default function App() {
-  const { emit } = useSocket();
+  const { socket, emit } = useSocket();
   const screen = useGameStore((s) => s.screen);
   const errorMessage = useGameStore((s) => s.errorMessage);
 
   return (
     <div className="app-container">
+      <ConnectionBanner socket={socket} />
       {errorMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-xl text-sm font-bold animate-slideUp max-w-[90vw] text-center">
           {errorMessage}

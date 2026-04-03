@@ -104,11 +104,13 @@ export default function useSocket() {
     socket.on('disconnect', () => {
       s.current.setConnected(false);
 
-      // If we were in a game, show reconnecting state
-      const { screen } = useGameStore.getState();
-      if (screen !== 'home' && screen !== 'join' && screen !== 'create') {
-        useGameStore.setState({ screen: 'reconnecting' });
-      }
+      // Give the banner + auto-reconnect 10 seconds before taking over the screen
+      setTimeout(() => {
+        const { connected, screen } = useGameStore.getState();
+        if (!connected && screen !== 'home' && screen !== 'join' && screen !== 'create' && screen !== 'reconnecting' && screen !== 'finished') {
+          useGameStore.setState({ screen: 'reconnecting' });
+        }
+      }, 10000);
     });
 
     // Server fully gave up reconnecting — show scores or go home
