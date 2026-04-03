@@ -38,6 +38,31 @@ function getSocket() {
   return socketInstance;
 }
 
+/**
+ * If any player scored, show the GameOver screen with current standings.
+ * Otherwise just reset to home.
+ */
+function showFinalScoresOrReset(storeRef, reason) {
+  const { players } = useGameStore.getState();
+  const hasScores = players.some((p) => p.score > 0);
+
+  if (hasScores) {
+    const scoreboard = [...players]
+      .sort((a, b) => b.score - a.score)
+      .map((p) => ({ id: p.id, name: p.name, score: p.score }));
+    useGameStore.setState({
+      scoreboard,
+      screen: 'finished',
+      state: 'finished',
+      isHost: false,          // hide "new game" button — server is gone
+    });
+    storeRef.current.setError(reason + ' הנה התוצאות עד כה:');
+  } else {
+    storeRef.current.setError(reason + ' חוזרים למסך הבית.');
+    storeRef.current.resetGame();
+  }
+}
+
 export default function useSocket() {
   const store = useGameStore();
   const storeRef = useRef(store);
@@ -86,12 +111,11 @@ export default function useSocket() {
       }
     });
 
-    // Server fully gave up reconnecting — reset to home
+    // Server fully gave up reconnecting — show scores or go home
     socket.on('reconnect_failed', () => {
       const { screen } = useGameStore.getState();
       if (screen === 'reconnecting') {
-        s.current.setError('החיבור לשרת נותק. חוזרים למסך הבית.');
-        s.current.resetGame();
+        showFinalScoresOrReset(s, 'החיבור לשרת נותק.');
       }
     });
 
@@ -199,12 +223,11 @@ export default function useSocket() {
     socket.on('error_msg', ({ message }) => {
       s.current.setError(message);
 
-      // If the room is gone (server restarted), send player home
+      // If the room is gone (server restarted), show scores or go home
       const { screen } = useGameStore.getState();
       const roomGone = message === 'החדר לא נמצא' || message === 'לא נמצא שחקן עם שם זה';
       if (roomGone && screen !== 'home' && screen !== 'join' && screen !== 'create') {
-        s.current.setError('השרת אותחל מחדש והמשחק אבד. מצטערים!');
-        s.current.resetGame();
+        showFinalScoresOrReset(s, 'השר�� אותחל מחדש.');
       }
     });
 
