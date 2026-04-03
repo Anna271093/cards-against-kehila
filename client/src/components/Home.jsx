@@ -38,6 +38,12 @@ export default function Home() {
         >
           📖 איך משחקים?
         </button>
+        <a
+          href="mailto:stacy2710@gmail.com?subject=הצעה ��קלף חדש - קלפים נגד הקהילה&body=יש לי רעיון לקלף:%0A%0A"
+          className="text-muted text-sm underline hover:text-gold transition-colors"
+        >
+          💡 הצעות לקלפים חדשים
+        </a>
       </div>
 
       {/* Rules Modal */}
