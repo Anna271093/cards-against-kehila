@@ -4,6 +4,25 @@ import useGameStore from '../store/gameStore';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
 
+// Keep Render alive — ping /api/health every 4 minutes
+const KEEP_ALIVE_MS = 4 * 60 * 1000;
+let keepAliveInterval = null;
+
+function startKeepAlive() {
+  if (keepAliveInterval) return;
+  const url = (SERVER_URL || '') + '/api/health';
+  keepAliveInterval = setInterval(() => {
+    fetch(url).catch(() => {});
+  }, KEEP_ALIVE_MS);
+}
+
+function stopKeepAlive() {
+  if (keepAliveInterval) {
+    clearInterval(keepAliveInterval);
+    keepAliveInterval = null;
+  }
+}
+
 let socketInstance = null;
 
 function getSocket() {
@@ -11,8 +30,9 @@ function getSocket() {
     socketInstance = io(SERVER_URL, {
       autoConnect: false,
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 15,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
     });
   }
   return socketInstance;
@@ -29,6 +49,8 @@ export default function useSocket() {
     if (!socket.connected) {
       socket.connect();
     }
+
+    startKeepAlive();
 
     const s = storeRef;
 
@@ -56,6 +78,21 @@ export default function useSocket() {
 
     socket.on('disconnect', () => {
       s.current.setConnected(false);
+
+      // If we were in a game, show reconnecting state
+      const { screen } = useGameStore.getState();
+      if (screen !== 'home' && screen !== 'join' && screen !== 'create') {
+        useGameStore.setState({ screen: 'reconnecting' });
+      }
+    });
+
+    // Server fully gave up reconnecting — reset to home
+    socket.on('reconnect_failed', () => {
+      const { screen } = useGameStore.getState();
+      if (screen === 'reconnecting') {
+        s.current.setError('החיבור לשרת נותק. חוזרים למסך הבית.');
+        s.current.resetGame();
+      }
     });
 
     socket.on('room_created', (snapshot) => {
@@ -161,11 +198,21 @@ export default function useSocket() {
 
     socket.on('error_msg', ({ message }) => {
       s.current.setError(message);
+
+      // If the room is gone (server restarted), send player home
+      const { screen } = useGameStore.getState();
+      const roomGone = message === 'החדר לא נמצא' || message === 'לא נמצא שחקן עם שם זה';
+      if (roomGone && screen !== 'home' && screen !== 'join' && screen !== 'create') {
+        s.current.setError('השרת אותחל מחדש והמשחק אבד. מצטערים!');
+        s.current.resetGame();
+      }
     });
 
     return () => {
+      stopKeepAlive();
       socket.off('connect');
       socket.off('disconnect');
+      socket.off('reconnect_failed');
       socket.off('room_created');
       socket.off('player_joined');
       socket.off('settings_updated');
