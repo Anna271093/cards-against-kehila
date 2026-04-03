@@ -219,6 +219,7 @@ function roomSnapshot(room, forPlayerId = null) {
     timerSeconds: room.timerSeconds,
     revealNames: room.revealNames,
     gameMode: room.gameMode,
+    cardMode: room.cardMode,
     winnerThisRound: room.winnerThisRound,
     winningCards: room.winningCards,
     players: room.players.map((p) => ({
@@ -311,7 +312,7 @@ io.on('connection', (socket) => {
   });
 
   // ----- update_settings -----
-  socket.on('update_settings', ({ roomCode, maxRounds, timerSeconds, revealNames, gameMode }) => {
+  socket.on('update_settings', ({ roomCode, maxRounds, timerSeconds, revealNames, gameMode, cardMode }) => {
     if (rateLimited(socket.id)) return;
 
     const room = getRoom(roomCode);
@@ -340,6 +341,9 @@ io.on('connection', (socket) => {
     }
     if (gameMode === 'classic' || gameMode === 'vote') {
       room.gameMode = gameMode;
+    }
+    if (cardMode === 'keep' || cardMode === 'random') {
+      room.cardMode = cardMode;
     }
 
     io.to(roomCode).emit('settings_updated', roomSnapshot(room));

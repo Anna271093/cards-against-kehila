@@ -18,6 +18,7 @@ export default function Lobby({ emit }) {
   const timerSeconds = useGameStore((s) => s.timerSeconds);
   const revealNames = useGameStore((s) => s.revealNames);
   const gameMode = useGameStore((s) => s.gameMode);
+  const cardMode = useGameStore((s) => s.cardMode);
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -37,6 +38,7 @@ export default function Lobby({ emit }) {
       timerSeconds: key === 'timerSeconds' ? value : timerSeconds,
       revealNames: key === 'revealNames' ? value : revealNames,
       gameMode: key === 'gameMode' ? value : gameMode,
+      cardMode: key === 'cardMode' ? value : cardMode,
     });
   };
 
@@ -121,6 +123,38 @@ export default function Lobby({ emit }) {
               {gameMode === 'classic'
                 ? 'שופט בוחר את התשובה המנצחת'
                 : 'כולם מצביעים, הרוב קובע'}
+            </p>
+          </div>
+
+          {/* Card mode */}
+          <div className="mb-4">
+            <label className="text-sm text-muted mb-2 block">סגנון קלפים</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => updateSetting('cardMode', 'keep')}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  cardMode === 'keep'
+                    ? 'bg-gold text-card-black'
+                    : 'bg-bg text-muted hover:text-white'
+                }`}
+              >
+                🃏 קלאסי
+              </button>
+              <button
+                onClick={() => updateSetting('cardMode', 'random')}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  cardMode === 'random'
+                    ? 'bg-gold text-card-black'
+                    : 'bg-bg text-muted hover:text-white'
+                }`}
+              >
+                🎲 רנדומלי
+              </button>
+            </div>
+            <p className="text-xs text-secondary mt-1">
+              {cardMode === 'keep'
+                ? 'שומרים את הקלפים, מקבלים השלמה בכל סיבוב'
+                : 'קלפים חדשים לגמרי בכל סיבוב'}
             </p>
           </div>
 

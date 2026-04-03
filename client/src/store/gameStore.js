@@ -26,6 +26,7 @@ const useGameStore = create((set, get) => ({
   timerSeconds: 60,
   revealNames: true,
   gameMode: 'classic',
+  cardMode: 'keep',
 
   // Player-specific
   myHand: [],
@@ -76,6 +77,7 @@ const useGameStore = create((set, get) => ({
       timerSeconds: snapshot.timerSeconds,
       revealNames: snapshot.revealNames,
       gameMode: snapshot.gameMode || 'classic',
+      cardMode: snapshot.cardMode || 'keep',
       roomCode: snapshot.roomCode || state.roomCode,
       isHost,
     };

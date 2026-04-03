@@ -294,14 +294,22 @@ export function nextRound(room) {
   room.winningCards = null;
   room.votes = {};
 
-  // Deal replacement cards so each non-judge player has HAND_SIZE cards
+  // Deal cards
   for (const player of room.players) {
     player.hasSubmitted = false;
     player.submittedCards = [];
     player._swappedThisRound = false;
-    const deficit = HAND_SIZE - player.hand.length;
-    if (deficit > 0) {
-      dealCards(room, player.id, deficit);
+
+    if (room.cardMode === 'random') {
+      // Random mode: discard entire hand and deal fresh
+      player.hand = [];
+      dealCards(room, player.id, HAND_SIZE);
+    } else {
+      // Classic mode: keep hand, fill up to HAND_SIZE
+      const deficit = HAND_SIZE - player.hand.length;
+      if (deficit > 0) {
+        dealCards(room, player.id, deficit);
+      }
     }
   }
 

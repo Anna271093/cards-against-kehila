@@ -55,6 +55,7 @@ export function createRoom(hostId, hostName) {
     timerSeconds: 60,
     revealNames: true,
     gameMode: 'classic', // 'classic' (judge) or 'vote' (popular vote)
+    cardMode: 'keep',    // 'keep' (keep hand) or 'random' (new cards each round)
     votes: {},           // playerId -> submissionIndex (for vote mode)
     winnerThisRound: null,
     winningCards: null,
