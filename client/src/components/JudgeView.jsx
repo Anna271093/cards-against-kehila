@@ -103,6 +103,19 @@ export default function JudgeView({ emit }) {
       {/* Submissions */}
       <div className="flex-1">
         <p className="text-sm text-muted mb-3">התשובות ({submissions.length}):</p>
+
+        {submissions.length === 0 && (
+          <div className="flex flex-col items-center justify-center gap-4 py-8">
+            <p className="text-muted text-sm">התשובות לא הגיעו? נסה לרענן:</p>
+            <button
+              onClick={() => emit('rejoin_room', { roomCode, playerName: players.find((p) => p.id === playerId)?.name })}
+              className="bg-gold/20 text-gold border border-gold/30 px-6 py-2 rounded-xl text-sm font-bold hover:bg-gold/30 transition-colors"
+            >
+              רענן תשובות 🔄
+            </button>
+          </div>
+        )}
+
         <div className="flex flex-col gap-3">
           {submissions.map((sub, index) => (
             <button
