@@ -25,6 +25,7 @@ const useGameStore = create((set, get) => ({
   maxRounds: 20,
   timerSeconds: 60,
   revealNames: true,
+  gameMode: 'classic',
 
   // Player-specific
   myHand: [],
@@ -33,7 +34,10 @@ const useGameStore = create((set, get) => ({
   canSwap: true,
 
   // Round state
-  submissions: [],       // for judge
+  submissions: [],       // for judge or vote
+  hasVoted: false,
+  voteCount: 0,
+  totalVoters: 0,
   submittedCount: 0,
   totalPlayers: 0,
   timerRemaining: null,
@@ -71,6 +75,7 @@ const useGameStore = create((set, get) => ({
       maxRounds: snapshot.maxRounds,
       timerSeconds: snapshot.timerSeconds,
       revealNames: snapshot.revealNames,
+      gameMode: snapshot.gameMode || 'classic',
       roomCode: snapshot.roomCode || state.roomCode,
       isHost,
     };
@@ -97,6 +102,8 @@ const useGameStore = create((set, get) => ({
       updates.timerRemaining = snapshot.timerSeconds || null;
     } else if (snapshot.state === 'judging') {
       updates.screen = 'judging';
+      updates.hasVoted = false;
+      updates.voteCount = 0;
     } else if (snapshot.state === 'reveal') {
       updates.screen = 'reveal';
     } else if (snapshot.state === 'finished') {

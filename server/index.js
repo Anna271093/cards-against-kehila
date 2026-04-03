@@ -121,7 +121,7 @@ function startRoundTimer(room) {
 
 function handleTimerExpiry(room) {
   // Auto-submit for everyone who hasn't submitted yet
-  const judgeId = room.players[room.currentJudgeIndex]?.id;
+  const judgeId = room.gameMode === 'vote' ? null : room.players[room.currentJudgeIndex]?.id;
 
   for (const player of room.players) {
     if (player.id !== judgeId && !player.hasSubmitted) {
@@ -170,19 +170,26 @@ function transitionToJudging(room) {
   clearRoomTimer(room.roomCode);
 
   const shuffledSubmissions = getAllSubmissions(room);
-  const judgeId = room.players[room.currentJudgeIndex]?.id;
 
-  const submittedCount = room.submissions.length;
+  if (room.gameMode === 'vote') {
+    // Vote mode: send submissions to ALL players, each player votes
+    room.votes = {};
+    room.players.forEach((p) => {
+      io.to(p.id).emit('all_submitted', { submissions: shuffledSubmissions, voteMode: true });
+    });
+  } else {
+    // Classic mode: send to judge only
+    const judgeId = room.players[room.currentJudgeIndex]?.id;
+    const submittedCount = room.submissions.length;
 
-  // Send shuffled submissions to the judge only
-  io.to(judgeId).emit('all_submitted', { submissions: shuffledSubmissions });
+    io.to(judgeId).emit('all_submitted', { submissions: shuffledSubmissions });
 
-  // Let everyone else know to wait for the judge
-  room.players.forEach((p) => {
-    if (p.id !== judgeId) {
-      io.to(p.id).emit('waiting_for_judge', { submittedCount });
-    }
-  });
+    room.players.forEach((p) => {
+      if (p.id !== judgeId) {
+        io.to(p.id).emit('waiting_for_judge', { submittedCount });
+      }
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +218,7 @@ function roomSnapshot(room, forPlayerId = null) {
     maxRounds: room.maxRounds,
     timerSeconds: room.timerSeconds,
     revealNames: room.revealNames,
+    gameMode: room.gameMode,
     winnerThisRound: room.winnerThisRound,
     winningCards: room.winningCards,
     players: room.players.map((p) => ({
@@ -231,6 +239,9 @@ function roomSnapshot(room, forPlayerId = null) {
  * Count how many non-judge players have submitted.
  */
 function submittedCount(room) {
+  if (room.gameMode === 'vote') {
+    return room.players.filter((p) => p.hasSubmitted).length;
+  }
   const judgeId = room.players[room.currentJudgeIndex]?.id;
   return room.players.filter(
     (p) => p.id !== judgeId && p.hasSubmitted
@@ -241,6 +252,9 @@ function submittedCount(room) {
  * Count how many non-judge players exist.
  */
 function nonJudgeCount(room) {
+  if (room.gameMode === 'vote') {
+    return room.players.length;
+  }
   const judgeId = room.players[room.currentJudgeIndex]?.id;
   return room.players.filter((p) => p.id !== judgeId).length;
 }
@@ -297,7 +311,7 @@ io.on('connection', (socket) => {
   });
 
   // ----- update_settings -----
-  socket.on('update_settings', ({ roomCode, maxRounds, timerSeconds, revealNames }) => {
+  socket.on('update_settings', ({ roomCode, maxRounds, timerSeconds, revealNames, gameMode }) => {
     if (rateLimited(socket.id)) return;
 
     const room = getRoom(roomCode);
@@ -323,6 +337,9 @@ io.on('connection', (socket) => {
     }
     if (typeof revealNames === 'boolean') {
       room.revealNames = revealNames;
+    }
+    if (gameMode === 'classic' || gameMode === 'vote') {
+      room.gameMode = gameMode;
     }
 
     io.to(roomCode).emit('settings_updated', roomSnapshot(room));
@@ -493,6 +510,84 @@ io.on('connection', (socket) => {
     });
   });
 
+  // ----- vote_pick (popular vote mode) -----
+  socket.on('vote_pick', ({ roomCode, submissionIndex }) => {
+    if (rateLimited(socket.id)) return;
+
+    const room = getRoom(roomCode);
+    if (!room) {
+      socket.emit('error_msg', { message: 'החדר לא נמצא' });
+      return;
+    }
+    if (room.state !== 'judging' || room.gameMode !== 'vote') {
+      socket.emit('error_msg', { message: 'לא בשלב הצבעה' });
+      return;
+    }
+    if (typeof submissionIndex !== 'number') {
+      socket.emit('error_msg', { message: 'בחירה לא תקינה' });
+      return;
+    }
+
+    // Can't vote for your own submission
+    if (room._submissionOrder) {
+      const originalIndex = room._submissionOrder[submissionIndex];
+      const sub = room.submissions[originalIndex];
+      if (sub && sub.playerId === socket.id) {
+        socket.emit('error_msg', { message: 'אי אפשר להצביע לעצמך!' });
+        return;
+      }
+    }
+
+    // Already voted?
+    if (room.votes[socket.id] !== undefined) {
+      socket.emit('error_msg', { message: 'כבר הצבעת' });
+      return;
+    }
+
+    room.votes[socket.id] = submissionIndex;
+
+    // Notify about vote count
+    const voteCount = Object.keys(room.votes).length;
+    const totalVoters = room.players.length;
+    io.to(roomCode).emit('vote_counted', { voteCount, totalVoters });
+
+    socket.emit('vote_accepted');
+
+    // Check if all players voted
+    if (voteCount >= totalVoters) {
+      // Tally votes
+      const tally = {};
+      for (const idx of Object.values(room.votes)) {
+        tally[idx] = (tally[idx] || 0) + 1;
+      }
+
+      // Find the submission with most votes
+      let maxVotes = 0;
+      let winnerIndices = [];
+      for (const [idx, count] of Object.entries(tally)) {
+        if (count > maxVotes) {
+          maxVotes = count;
+          winnerIndices = [Number(idx)];
+        } else if (count === maxVotes) {
+          winnerIndices.push(Number(idx));
+        }
+      }
+
+      // Random tiebreak
+      const winningShuffledIdx = winnerIndices[Math.floor(Math.random() * winnerIndices.length)];
+
+      const result = pickWinner(room, winningShuffledIdx);
+      if (!result.success) return;
+
+      io.to(roomCode).emit('round_winner', {
+        winner: result.winner,
+        scoreboard: getScoreboard(room),
+        roomSnapshot: roomSnapshot(room),
+        voteResults: tally,
+      });
+    }
+  });
+
   // ----- next_round -----
   socket.on('next_round', ({ roomCode }) => {
     if (rateLimited(socket.id)) return;
@@ -582,6 +677,7 @@ io.on('connection', (socket) => {
     room.roundNumber = 0;
     room.winnerThisRound = null;
     room.winningCards = null;
+    room.votes = {};
     room._blackDeck = null;
     room._whiteDeck = null;
     room._submissionOrder = null;

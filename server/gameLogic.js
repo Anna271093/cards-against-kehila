@@ -145,10 +145,12 @@ export function submitCards(room, playerId, cardIndices) {
     return { success: false, error: 'כבר הגשת קלפים' }; // Already submitted
   }
 
-  // Check that this player is not the judge
-  const judgeId = room.players[room.currentJudgeIndex]?.id;
-  if (playerId === judgeId) {
-    return { success: false, error: 'השופט לא מגיש קלפים' }; // Judge doesn't submit
+  // Check that this player is not the judge (classic mode only)
+  if (room.gameMode !== 'vote') {
+    const judgeId = room.players[room.currentJudgeIndex]?.id;
+    if (playerId === judgeId) {
+      return { success: false, error: 'השופט לא מגיש קלפים' }; // Judge doesn't submit
+    }
   }
 
   // Validate the expected number of cards
@@ -290,6 +292,7 @@ export function nextRound(room) {
   room._submissionOrder = null;
   room.winnerThisRound = null;
   room.winningCards = null;
+  room.votes = {};
 
   // Deal replacement cards so each non-judge player has HAND_SIZE cards
   for (const player of room.players) {
@@ -342,9 +345,11 @@ export function autoSubmit(room, playerId) {
     return { success: false };
   }
 
-  const judgeId = room.players[room.currentJudgeIndex]?.id;
-  if (playerId === judgeId) {
-    return { success: false };
+  if (room.gameMode !== 'vote') {
+    const judgeId = room.players[room.currentJudgeIndex]?.id;
+    if (playerId === judgeId) {
+      return { success: false };
+    }
   }
 
   const requiredPick = room.currentBlackCard?.pick || 1;

@@ -11,20 +11,29 @@ export default function JudgeView({ emit }) {
   const submissions = useGameStore((s) => s.submissions);
   const roundNumber = useGameStore((s) => s.roundNumber);
   const maxRounds = useGameStore((s) => s.maxRounds);
+  const gameMode = useGameStore((s) => s.gameMode);
+  const hasVoted = useGameStore((s) => s.hasVoted);
+  const voteCount = useGameStore((s) => s.voteCount);
+  const totalVoters = useGameStore((s) => s.totalVoters);
   const [selectedIndex, setSelectedIndex] = useState(null);
 
   const judge = players[currentJudgeIndex];
   const isJudge = judge?.id === playerId;
+  const isVoteMode = gameMode === 'vote';
   const myScore = players.find((p) => p.id === playerId)?.score || 0;
 
   const handlePick = () => {
     if (selectedIndex == null) return;
-    emit('judge_pick', { roomCode, submissionIndex: selectedIndex });
+    if (isVoteMode) {
+      emit('vote_pick', { roomCode, submissionIndex: selectedIndex });
+    } else {
+      emit('judge_pick', { roomCode, submissionIndex: selectedIndex });
+    }
     setSelectedIndex(null);
   };
 
-  // Non-judge waiting screen
-  if (!isJudge) {
+  // Non-judge waiting screen (classic mode only)
+  if (!isJudge && !isVoteMode) {
     return (
       <div className="flex flex-col min-h-screen py-4">
         <div className="flex items-center justify-between mb-4 px-1">
@@ -51,12 +60,40 @@ export default function JudgeView({ emit }) {
     );
   }
 
+  // Vote mode: already voted, waiting
+  if (isVoteMode && hasVoted) {
+    return (
+      <div className="flex flex-col min-h-screen py-4">
+        <div className="flex items-center justify-between mb-4 px-1">
+          <span className="text-sm text-muted">סיבוב {roundNumber}/{maxRounds}</span>
+          <span className="text-sm">🏆 {myScore} נק׳</span>
+        </div>
+
+        <div className="mb-4">
+          <BlackCard card={currentBlackCard} />
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center">
+          <div className="text-4xl">✓</div>
+          <h3 className="text-xl font-secular">ההצבעה נקלטה!</h3>
+          <p className="text-muted text-sm">
+            ממתינים לשאר השחקנים... ({voteCount}/{totalVoters})
+          </p>
+        </div>
+
+        <div className="text-center mt-4 pb-2">
+          <span className="text-xs text-secondary">קוד חדר: <span className="font-mono text-muted">{roomCode}</span></span>
+        </div>
+      </div>
+    );
+  }
+
   // Judge view with submissions
   return (
     <div className="flex flex-col min-h-screen py-4">
       <div className="flex items-center justify-between mb-4 px-1">
         <span className="text-sm text-muted">סיבוב {roundNumber}/{maxRounds}</span>
-        <span className="text-sm text-gold font-bold">👑 בחר את הזוכה!</span>
+        <span className="text-sm text-gold font-bold">{isVoteMode ? '🗳️ הצביעו!' : '👑 בחר את הזוכה!'}</span>
       </div>
 
       <div className="mb-4">
@@ -95,7 +132,7 @@ export default function JudgeView({ emit }) {
           onClick={handlePick}
           disabled={selectedIndex == null}
         >
-          זה הזוכה! 🏆
+          {isVoteMode ? 'הצבע! 🗳️' : 'זה הזוכה! 🏆'}
         </button>
       </div>
 

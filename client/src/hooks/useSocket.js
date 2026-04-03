@@ -80,13 +80,24 @@ export default function useSocket() {
       s.current.setSubmissionCount(submitted, total);
     });
 
-    socket.on('all_submitted', ({ submissions }) => {
+    socket.on('all_submitted', ({ submissions, voteMode }) => {
       s.current.setSubmissions(submissions);
       s.current.setScreen('judging');
+      if (voteMode) {
+        useGameStore.setState({ hasVoted: false });
+      }
     });
 
     socket.on('waiting_for_judge', () => {
       s.current.setScreen('judging');
+    });
+
+    socket.on('vote_accepted', () => {
+      useGameStore.setState({ hasVoted: true });
+    });
+
+    socket.on('vote_counted', ({ voteCount, totalVoters }) => {
+      useGameStore.setState({ voteCount, totalVoters });
     });
 
     socket.on('round_winner', ({ winner, scoreboard, roomSnapshot }) => {
@@ -164,6 +175,8 @@ export default function useSocket() {
       socket.off('timer_tick');
       socket.off('round_skipped');
       socket.off('card_swapped');
+      socket.off('vote_accepted');
+      socket.off('vote_counted');
       socket.off('error_msg');
     };
   }, [socket]);

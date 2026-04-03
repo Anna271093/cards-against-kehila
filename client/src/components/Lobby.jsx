@@ -17,6 +17,7 @@ export default function Lobby({ emit }) {
   const maxRounds = useGameStore((s) => s.maxRounds);
   const timerSeconds = useGameStore((s) => s.timerSeconds);
   const revealNames = useGameStore((s) => s.revealNames);
+  const gameMode = useGameStore((s) => s.gameMode);
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -35,6 +36,7 @@ export default function Lobby({ emit }) {
       maxRounds: key === 'maxRounds' ? value : maxRounds,
       timerSeconds: key === 'timerSeconds' ? value : timerSeconds,
       revealNames: key === 'revealNames' ? value : revealNames,
+      gameMode: key === 'gameMode' ? value : gameMode,
     });
   };
 
@@ -89,6 +91,38 @@ export default function Lobby({ emit }) {
       {isHost && (
         <div className="bg-card-black border border-card-border rounded-2xl p-4 mb-6">
           <h3 className="text-lg font-secular mb-3">הגדרות</h3>
+
+          {/* Game mode */}
+          <div className="mb-4">
+            <label className="text-sm text-muted mb-2 block">מצב משחק</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => updateSetting('gameMode', 'classic')}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  gameMode === 'classic'
+                    ? 'bg-gold text-card-black'
+                    : 'bg-bg text-muted hover:text-white'
+                }`}
+              >
+                👑 שופט
+              </button>
+              <button
+                onClick={() => updateSetting('gameMode', 'vote')}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  gameMode === 'vote'
+                    ? 'bg-gold text-card-black'
+                    : 'bg-bg text-muted hover:text-white'
+                }`}
+              >
+                🗳️ הצבעת רוב
+              </button>
+            </div>
+            <p className="text-xs text-secondary mt-1">
+              {gameMode === 'classic'
+                ? 'שופט בוחר את התשובה המנצחת'
+                : 'כולם מצביעים, הרוב קובע'}
+            </p>
+          </div>
 
           {/* Rounds */}
           <div className="mb-4">

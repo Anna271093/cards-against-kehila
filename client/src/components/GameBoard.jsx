@@ -18,9 +18,10 @@ export default function GameBoard({ emit }) {
   const totalPlayers = useGameStore((s) => s.totalPlayers);
   const selectCard = useGameStore((s) => s.selectCard);
   const canSwap = useGameStore((s) => s.canSwap);
+  const gameMode = useGameStore((s) => s.gameMode);
 
   const judge = players[currentJudgeIndex];
-  const isJudge = judge?.id === playerId;
+  const isJudge = gameMode === 'classic' && judge?.id === playerId;
   const myScore = players.find((p) => p.id === playerId)?.score || 0;
   const requiredPick = currentBlackCard?.pick || 1;
 
