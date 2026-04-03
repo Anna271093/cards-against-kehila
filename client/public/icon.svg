@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#e94560"/>
+      <stop offset="100%" style="stop-color:#c23152"/>
+    </linearGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="250" fill="url(#bg)" stroke="#e94560" stroke-width="8"/>
+  <!-- Card shape -->
+  <rect x="146" y="96" width="220" height="320" rx="20" ry="20" fill="url(#card)" opacity="0.9"/>
+  <!-- Card inner border -->
+  <rect x="162" y="112" width="188" height="288" rx="14" ry="14" fill="none" stroke="white" stroke-width="3" opacity="0.4"/>
+  <!-- Hebrew letter Qof - ק (for קלפים/קהילה) -->
+  <text x="256" y="290" font-family="Arial, sans-serif" font-size="160" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle">ק</text>
+  <!-- Small decorative stars -->
+  <text x="185" y="148" font-size="28" fill="white" opacity="0.7">&#x2721;</text>
+  <text x="327" y="375" font-size="28" fill="white" opacity="0.7">&#x2721;</text>
+</svg>
