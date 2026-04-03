@@ -37,10 +37,20 @@ export default function useSocket() {
       // Save socket ID as playerId
       useGameStore.setState({ playerId: socket.id });
 
-      // Try to rejoin if we had a room
-      const { roomCode, playerName } = useGameStore.getState();
+      // Try to rejoin if we had a room (e.g. after refresh)
+      const { roomCode, playerName, screen } = useGameStore.getState();
       if (roomCode && playerName) {
         socket.emit('rejoin_room', { roomCode, playerName });
+        // If rejoin fails (room gone), error_msg will fire and we handle below
+        if (screen === 'reconnecting') {
+          // Give 3 seconds for rejoin, then fall back to home
+          setTimeout(() => {
+            const current = useGameStore.getState();
+            if (current.screen === 'reconnecting') {
+              current.resetGame();
+            }
+          }, 3000);
+        }
       }
     });
 

@@ -22,6 +22,12 @@ export default function App() {
         </div>
       )}
 
+      {screen === 'reconnecting' && (
+        <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+          <div className="text-4xl animate-pulse">🃏</div>
+          <p className="text-white font-secular text-lg">מתחבר מחדש...</p>
+        </div>
+      )}
       {screen === 'home' && <Home />}
       {screen === 'join' && <JoinRoom emit={emit} />}
       {screen === 'create' && <CreateRoom emit={emit} />}

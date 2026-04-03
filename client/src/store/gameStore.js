@@ -1,17 +1,46 @@
 import { create } from 'zustand';
 
+// Persist room info to localStorage so refresh doesn't lose the game
+function saveSession(roomCode, playerName) {
+  try {
+    if (roomCode && playerName) {
+      localStorage.setItem('cak_session', JSON.stringify({ roomCode, playerName, ts: Date.now() }));
+    } else {
+      localStorage.removeItem('cak_session');
+    }
+  } catch {}
+}
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem('cak_session');
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    // Expire after 2 hours
+    if (Date.now() - data.ts > 2 * 60 * 60 * 1000) {
+      localStorage.removeItem('cak_session');
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+const saved = loadSession();
+
 const useGameStore = create((set, get) => ({
   // Connection
   connected: false,
   setConnected: (val) => set({ connected: val }),
 
   // Screen navigation
-  screen: 'home', // home | join | create | lobby | playing | judging | reveal | finished
+  screen: saved ? 'reconnecting' : 'home',
   setScreen: (screen) => set({ screen }),
 
   // Room info
-  roomCode: null,
-  playerName: null,
+  roomCode: saved?.roomCode || null,
+  playerName: saved?.playerName || null,
   playerId: null,
   isHost: false,
 
@@ -57,14 +86,21 @@ const useGameStore = create((set, get) => ({
   },
 
   // Actions
-  setRoomInfo: ({ roomCode, playerName, playerId, isHost }) =>
-    set({ roomCode, playerName, playerId, isHost }),
+  setRoomInfo: ({ roomCode, playerName, playerId, isHost }) => {
+    saveSession(roomCode, playerName);
+    set({ roomCode, playerName, playerId, isHost });
+  },
 
   updateFromSnapshot: (snapshot) => {
     const state = get();
     const me = snapshot.players?.find((p) => p.id === state.playerId);
-    const isJudge = snapshot.players?.[snapshot.currentJudgeIndex]?.id === state.playerId;
     const isHost = snapshot.hostId === state.playerId;
+
+    // Persist session
+    const rc = snapshot.roomCode || state.roomCode;
+    if (rc && state.playerName) {
+      saveSession(rc, state.playerName);
+    }
 
     const updates = {
       players: snapshot.players || [],
@@ -157,7 +193,8 @@ const useGameStore = create((set, get) => ({
       state: 'finished',
     }),
 
-  resetGame: () =>
+  resetGame: () => {
+    saveSession(null, null);
     set({
       screen: 'home',
       roomCode: null,
@@ -183,7 +220,8 @@ const useGameStore = create((set, get) => ({
       allSubmissions: [],
       scoreboard: [],
       errorMessage: null,
-    }),
+    });
+  },
 }));
 
 export default useGameStore;
