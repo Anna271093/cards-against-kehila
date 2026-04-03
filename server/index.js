@@ -1,0 +1,694 @@
+// Main server for קלפים נגד הקהילה
+// Express + Socket.io, in-memory storage, ES modules.
+
+import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+import {
+  createRoom,
+  getRoom,
+  joinRoom,
+  removePlayer,
+  deleteRoom,
+  getRoomByPlayerId,
+  cleanupRooms,
+} from './roomManager.js';
+
+import {
+  startGame,
+  submitCards,
+  getAllSubmissions,
+  pickWinner,
+  nextRound,
+  isGameOver,
+  getScoreboard,
+  autoSubmit,
+} from './gameLogic.js';
+
+// ---------------------------------------------------------------------------
+// Server setup
+// ---------------------------------------------------------------------------
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const httpServer = createServer(app);
+
+const FRONTEND_URL = process.env.FRONTEND_URL || '*';
+const PORT = process.env.PORT || 3001;
+
+app.use(cors({ origin: FRONTEND_URL === '*' ? true : FRONTEND_URL }));
+app.use(express.json());
+
+// In production, serve the built client
+const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
+app.use(express.static(clientDistPath));
+
+const io = new Server(httpServer, {
+  cors: {
+    origin: FRONTEND_URL === '*' ? true : FRONTEND_URL,
+    methods: ['GET', 'POST'],
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Health check
+// ---------------------------------------------------------------------------
+
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: Date.now() });
+});
+
+// ---------------------------------------------------------------------------
+// Rate limiting (per socket)
+// ---------------------------------------------------------------------------
+
+const RATE_LIMIT_MAX = 10; // events per second
+const rateLimitCounters = new Map(); // socketId -> { count, resetTime }
+
+function rateLimited(socketId) {
+  const now = Date.now();
+  let entry = rateLimitCounters.get(socketId);
+
+  if (!entry || now > entry.resetTime) {
+    entry = { count: 0, resetTime: now + 1000 };
+    rateLimitCounters.set(socketId, entry);
+  }
+
+  entry.count += 1;
+  return entry.count > RATE_LIMIT_MAX;
+}
+
+// ---------------------------------------------------------------------------
+// Active timers
+// ---------------------------------------------------------------------------
+
+const roomTimers = new Map(); // roomCode -> intervalId
+
+function clearRoomTimer(roomCode) {
+  if (roomTimers.has(roomCode)) {
+    clearInterval(roomTimers.get(roomCode));
+    roomTimers.delete(roomCode);
+  }
+}
+
+function startRoundTimer(room) {
+  clearRoomTimer(room.roomCode);
+
+  if (!room.timerSeconds || room.timerSeconds <= 0) return;
+
+  let remaining = room.timerSeconds;
+
+  const interval = setInterval(() => {
+    remaining -= 1;
+    io.to(room.roomCode).emit('timer_tick', { remaining });
+
+    if (remaining <= 0) {
+      clearInterval(interval);
+      roomTimers.delete(room.roomCode);
+      handleTimerExpiry(room);
+    }
+  }, 1000);
+
+  roomTimers.set(room.roomCode, interval);
+}
+
+function handleTimerExpiry(room) {
+  // Auto-submit for everyone who hasn't submitted yet
+  const judgeId = room.players[room.currentJudgeIndex]?.id;
+
+  for (const player of room.players) {
+    if (player.id !== judgeId && !player.hasSubmitted) {
+      autoSubmit(room, player.id);
+    }
+  }
+
+  // Notify about auto-submissions and move to judging if we have submissions
+  if (room.submissions.length > 0) {
+    transitionToJudging(room);
+  }
+  // If nobody submitted anything (edge case), skip to next round
+  else {
+    io.to(room.roomCode).emit('round_skipped', {
+      reason: 'אף אחד לא הגיש קלפים',
+    });
+  }
+}
+
+/**
+ * Transition the room to the judging state, notify all players.
+ */
+function transitionToJudging(room) {
+  room.state = 'judging';
+  clearRoomTimer(room.roomCode);
+
+  const shuffledSubmissions = getAllSubmissions(room);
+  const judgeId = room.players[room.currentJudgeIndex]?.id;
+
+  const submittedCount = room.submissions.length;
+
+  // Send shuffled submissions to the judge only
+  io.to(judgeId).emit('all_submitted', { submissions: shuffledSubmissions });
+
+  // Let everyone else know to wait for the judge
+  room.players.forEach((p) => {
+    if (p.id !== judgeId) {
+      io.to(p.id).emit('waiting_for_judge', { submittedCount });
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Disconnect grace period tracking
+// ---------------------------------------------------------------------------
+
+const disconnectTimers = new Map(); // socketId -> { timeout, roomCode }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a sanitized room snapshot for clients (strips internal fields).
+ */
+function roomSnapshot(room, forPlayerId = null) {
+  return {
+    roomCode: room.roomCode,
+    hostId: room.hostId,
+    state: room.state,
+    currentBlackCard: room.currentBlackCard
+      ? { text: room.currentBlackCard.text, pick: room.currentBlackCard.pick }
+      : null,
+    currentJudgeIndex: room.currentJudgeIndex,
+    roundNumber: room.roundNumber,
+    maxRounds: room.maxRounds,
+    timerSeconds: room.timerSeconds,
+    revealNames: room.revealNames,
+    winnerThisRound: room.winnerThisRound,
+    winningCards: room.winningCards,
+    players: room.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      score: p.score,
+      hasSubmitted: p.hasSubmitted,
+      handCount: p.hand.length,
+      // Only include the hand for the requesting player
+      ...(forPlayerId && p.id === forPlayerId
+        ? { hand: p.hand.map((c) => ({ text: c.text })) }
+        : {}),
+    })),
+  };
+}
+
+/**
+ * Count how many non-judge players have submitted.
+ */
+function submittedCount(room) {
+  const judgeId = room.players[room.currentJudgeIndex]?.id;
+  return room.players.filter(
+    (p) => p.id !== judgeId && p.hasSubmitted
+  ).length;
+}
+
+/**
+ * Count how many non-judge players exist.
+ */
+function nonJudgeCount(room) {
+  const judgeId = room.players[room.currentJudgeIndex]?.id;
+  return room.players.filter((p) => p.id !== judgeId).length;
+}
+
+// ---------------------------------------------------------------------------
+// Socket.io connection handler
+// ---------------------------------------------------------------------------
+
+io.on('connection', (socket) => {
+  // ----- create_room -----
+  socket.on('create_room', ({ playerName }) => {
+    if (rateLimited(socket.id)) return;
+
+    if (!playerName || typeof playerName !== 'string' || playerName.trim().length === 0) {
+      socket.emit('error_msg', { message: 'שם לא תקין' });
+      return;
+    }
+
+    const name = playerName.trim().slice(0, 30);
+    const room = createRoom(socket.id, name);
+    socket.join(room.roomCode);
+
+    socket.emit('room_created', roomSnapshot(room, socket.id));
+  });
+
+  // ----- join_room -----
+  socket.on('join_room', ({ roomCode, playerName }) => {
+    if (rateLimited(socket.id)) return;
+
+    if (
+      !roomCode ||
+      !playerName ||
+      typeof roomCode !== 'string' ||
+      typeof playerName !== 'string' ||
+      playerName.trim().length === 0
+    ) {
+      socket.emit('error_msg', { message: 'נתונים חסרים' });
+      return;
+    }
+
+    const code = roomCode.toUpperCase().trim();
+    const name = playerName.trim().slice(0, 30);
+
+    const result = joinRoom(code, socket.id, name);
+    if (!result.success) {
+      socket.emit('error_msg', { message: result.error });
+      return;
+    }
+
+    socket.join(code);
+
+    // Notify everyone in the room
+    io.to(code).emit('player_joined', roomSnapshot(result.room));
+  });
+
+  // ----- update_settings -----
+  socket.on('update_settings', ({ roomCode, maxRounds, timerSeconds, revealNames }) => {
+    if (rateLimited(socket.id)) return;
+
+    const room = getRoom(roomCode);
+    if (!room) {
+      socket.emit('error_msg', { message: 'החדר לא נמצא' });
+      return;
+    }
+    if (room.hostId !== socket.id) {
+      socket.emit('error_msg', { message: 'רק המארח יכול לשנות הגדרות' });
+      return;
+    }
+    if (room.state !== 'lobby') {
+      socket.emit('error_msg', { message: 'אי אפשר לשנות הגדרות במהלך משחק' });
+      return;
+    }
+
+    // Validate and apply settings
+    if (typeof maxRounds === 'number' && maxRounds >= 1 && maxRounds <= 50) {
+      room.maxRounds = Math.floor(maxRounds);
+    }
+    if (typeof timerSeconds === 'number' && timerSeconds >= 0 && timerSeconds <= 300) {
+      room.timerSeconds = Math.floor(timerSeconds);
+    }
+    if (typeof revealNames === 'boolean') {
+      room.revealNames = revealNames;
+    }
+
+    io.to(roomCode).emit('settings_updated', roomSnapshot(room));
+  });
+
+  // ----- start_game -----
+  socket.on('start_game', ({ roomCode }) => {
+    if (rateLimited(socket.id)) return;
+
+    const room = getRoom(roomCode);
+    if (!room) {
+      socket.emit('error_msg', { message: 'החדר לא נמצא' });
+      return;
+    }
+    if (room.hostId !== socket.id) {
+      socket.emit('error_msg', { message: 'רק המארח יכול להתחיל' });
+      return;
+    }
+    if (room.state !== 'lobby') {
+      socket.emit('error_msg', { message: 'המשחק כבר התחיל' });
+      return;
+    }
+    if (room.players.length < 3) {
+      socket.emit('error_msg', { message: 'צריך לפחות 3 שחקנים' });
+      return;
+    }
+
+    startGame(room);
+
+    // Send each player their private hand + the public game state
+    for (const player of room.players) {
+      io.to(player.id).emit('game_started', roomSnapshot(room, player.id));
+    }
+
+    // Start the round timer
+    startRoundTimer(room);
+  });
+
+  // ----- submit_card -----
+  socket.on('submit_card', ({ roomCode, cardIndices }) => {
+    if (rateLimited(socket.id)) return;
+
+    const room = getRoom(roomCode);
+    if (!room) {
+      socket.emit('error_msg', { message: 'החדר לא נמצא' });
+      return;
+    }
+    if (room.state !== 'playing') {
+      socket.emit('error_msg', { message: 'לא בזמן משחק' });
+      return;
+    }
+
+    if (!Array.isArray(cardIndices)) {
+      socket.emit('error_msg', { message: 'נתונים לא תקינים' });
+      return;
+    }
+
+    const result = submitCards(room, socket.id, cardIndices);
+    if (!result.success) {
+      socket.emit('error_msg', { message: result.error });
+      return;
+    }
+
+    // Acknowledge to the submitting player
+    socket.emit('card_submitted', {
+      hand: room.players.find((p) => p.id === socket.id)?.hand.map((c) => ({ text: c.text })) || [],
+    });
+
+    // Notify room of submission count
+    const submitted = submittedCount(room);
+    const total = nonJudgeCount(room);
+    io.to(roomCode).emit('player_submitted', { submitted, total });
+
+    // If all non-judge players have submitted, move to judging
+    if (submitted >= total) {
+      transitionToJudging(room);
+    }
+  });
+
+  // ----- judge_pick -----
+  socket.on('judge_pick', ({ roomCode, submissionIndex }) => {
+    if (rateLimited(socket.id)) return;
+
+    const room = getRoom(roomCode);
+    if (!room) {
+      socket.emit('error_msg', { message: 'החדר לא נמצא' });
+      return;
+    }
+    if (room.state !== 'judging') {
+      socket.emit('error_msg', { message: 'לא בשלב שיפוט' });
+      return;
+    }
+
+    const judgeId = room.players[room.currentJudgeIndex]?.id;
+    if (socket.id !== judgeId) {
+      socket.emit('error_msg', { message: 'רק השופט יכול לבחור' });
+      return;
+    }
+
+    if (typeof submissionIndex !== 'number') {
+      socket.emit('error_msg', { message: 'בחירה לא תקינה' });
+      return;
+    }
+
+    const result = pickWinner(room, submissionIndex);
+    if (!result.success) {
+      socket.emit('error_msg', { message: result.error });
+      return;
+    }
+
+    // Emit to all players
+    io.to(roomCode).emit('round_winner', {
+      winner: result.winner,
+      scoreboard: getScoreboard(room),
+      roomSnapshot: roomSnapshot(room),
+    });
+  });
+
+  // ----- next_round -----
+  socket.on('next_round', ({ roomCode }) => {
+    if (rateLimited(socket.id)) return;
+
+    const room = getRoom(roomCode);
+    if (!room) {
+      socket.emit('error_msg', { message: 'החדר לא נמצא' });
+      return;
+    }
+    if (room.hostId !== socket.id) {
+      socket.emit('error_msg', { message: 'רק המארח יכול להמשיך' });
+      return;
+    }
+    if (room.state !== 'reveal') {
+      socket.emit('error_msg', { message: 'לא בשלב הנכון' });
+      return;
+    }
+
+    // Check game over
+    if (isGameOver(room)) {
+      room.state = 'finished';
+      clearRoomTimer(room.roomCode);
+      io.to(roomCode).emit('game_over', {
+        scoreboard: getScoreboard(room),
+        roomSnapshot: roomSnapshot(room),
+      });
+      return;
+    }
+
+    nextRound(room);
+
+    // Send each player their updated hand privately
+    for (const player of room.players) {
+      io.to(player.id).emit('new_round', roomSnapshot(room, player.id));
+    }
+
+    // Start timer for the new round
+    startRoundTimer(room);
+  });
+
+  // ----- end_game -----
+  socket.on('end_game', ({ roomCode }) => {
+    if (rateLimited(socket.id)) return;
+
+    const room = getRoom(roomCode);
+    if (!room) {
+      socket.emit('error_msg', { message: 'החדר לא נמצא' });
+      return;
+    }
+    if (room.hostId !== socket.id) {
+      socket.emit('error_msg', { message: 'רק המארח יכול לסיים' });
+      return;
+    }
+
+    room.state = 'finished';
+    clearRoomTimer(room.roomCode);
+
+    io.to(roomCode).emit('game_over', {
+      scoreboard: getScoreboard(room),
+      roomSnapshot: roomSnapshot(room),
+    });
+  });
+
+  // ----- new_game -----
+  socket.on('new_game', ({ roomCode }) => {
+    if (rateLimited(socket.id)) return;
+
+    const room = getRoom(roomCode);
+    if (!room) {
+      socket.emit('error_msg', { message: 'החדר לא נמצא' });
+      return;
+    }
+    if (room.hostId !== socket.id) {
+      socket.emit('error_msg', { message: 'רק המארח יכול לאפס' });
+      return;
+    }
+
+    clearRoomTimer(room.roomCode);
+
+    // Reset everything back to lobby
+    room.state = 'lobby';
+    room.currentBlackCard = null;
+    room.currentJudgeIndex = 0;
+    room.submissions = [];
+    room.usedBlackCards = [];
+    room.usedWhiteCards = [];
+    room.roundNumber = 0;
+    room.winnerThisRound = null;
+    room.winningCards = null;
+    room._blackDeck = null;
+    room._whiteDeck = null;
+    room._submissionOrder = null;
+
+    for (const player of room.players) {
+      player.score = 0;
+      player.hand = [];
+      player.hasSubmitted = false;
+      player.submittedCards = [];
+    }
+
+    io.to(roomCode).emit('game_reset', roomSnapshot(room));
+  });
+
+  // ----- disconnect -----
+  socket.on('disconnect', () => {
+    rateLimitCounters.delete(socket.id);
+
+    const room = getRoomByPlayerId(socket.id);
+    if (!room) return;
+
+    // Grace period: wait 15 seconds before removing
+    const timeout = setTimeout(() => {
+      handlePlayerRemoval(socket.id, room.roomCode);
+      disconnectTimers.delete(socket.id);
+    }, 15000);
+
+    disconnectTimers.set(socket.id, { timeout, roomCode: room.roomCode });
+  });
+
+  // ----- reconnect (rejoin) -----
+  socket.on('rejoin_room', ({ roomCode, playerName }) => {
+    if (rateLimited(socket.id)) return;
+
+    const room = getRoom(roomCode);
+    if (!room) {
+      socket.emit('error_msg', { message: 'החדר לא נמצא' });
+      return;
+    }
+
+    // Find a player with matching name who might have disconnected
+    const existingPlayer = room.players.find(
+      (p) => p.name.toLowerCase() === playerName?.toLowerCase?.()
+    );
+
+    if (existingPlayer) {
+      const oldId = existingPlayer.id;
+
+      // Cancel the disconnect timer for the old socket
+      if (disconnectTimers.has(oldId)) {
+        clearTimeout(disconnectTimers.get(oldId).timeout);
+        disconnectTimers.delete(oldId);
+      }
+
+      // Update the player's socket ID
+      existingPlayer.id = socket.id;
+
+      // Update host reference if needed
+      if (room.hostId === oldId) {
+        room.hostId = socket.id;
+      }
+
+      // Update judge reference if the judge index points to this player
+      // (no change needed since we track by index, not by id)
+
+      socket.join(roomCode);
+
+      // Send the player their current state
+      socket.emit('rejoin_success', roomSnapshot(room, socket.id));
+
+      // Notify others
+      socket.to(roomCode).emit('player_reconnected', {
+        playerName: existingPlayer.name,
+        roomSnapshot: roomSnapshot(room),
+      });
+    } else {
+      socket.emit('error_msg', { message: 'לא נמצא שחקן עם שם זה' });
+    }
+  });
+});
+
+/**
+ * Handle the actual removal of a disconnected player after grace period.
+ */
+function handlePlayerRemoval(playerId, roomCode) {
+  const room = getRoom(roomCode);
+  if (!room) return;
+
+  // Confirm the player is still in the room with this ID
+  // (they might have reconnected with a new socket)
+  const stillPresent = room.players.find((p) => p.id === playerId);
+  if (!stillPresent) return;
+
+  const wasJudge =
+    room.players[room.currentJudgeIndex]?.id === playerId;
+  const wasHost = room.hostId === playerId;
+
+  const result = removePlayer(roomCode, playerId);
+  if (!result.removed) return;
+
+  if (result.isEmpty) {
+    clearRoomTimer(roomCode);
+    // Room will be cleaned up by the roomManager's 30-min timer
+    return;
+  }
+
+  // Notify remaining players
+  io.to(roomCode).emit('player_left', {
+    playerName: stillPresent.name,
+    newHostId: result.newHostId,
+    roomSnapshot: roomSnapshot(room),
+  });
+
+  // If fewer than 3 players remain during a game, end it
+  if (room.state !== 'lobby' && room.state !== 'finished' && room.players.length < 3) {
+    room.state = 'finished';
+    clearRoomTimer(roomCode);
+    io.to(roomCode).emit('game_over', {
+      reason: 'אין מספיק שחקנים',
+      scoreboard: getScoreboard(room),
+      roomSnapshot: roomSnapshot(room),
+    });
+    return;
+  }
+
+  // If the judge disconnected mid-game, handle judge rotation
+  if (wasJudge && (room.state === 'playing' || room.state === 'judging')) {
+    // The judge index was already adjusted by removePlayer.
+    // Reset current round submissions and restart.
+    room.submissions = [];
+    room._submissionOrder = null;
+    room.winnerThisRound = null;
+    room.winningCards = null;
+
+    for (const player of room.players) {
+      // Return submitted cards to hand
+      if (player.submittedCards.length > 0) {
+        player.hand.push(...player.submittedCards);
+      }
+      player.hasSubmitted = false;
+      player.submittedCards = [];
+    }
+
+    room.state = 'playing';
+
+    // Notify everyone of the new round state with a new judge
+    for (const player of room.players) {
+      io.to(player.id).emit('judge_changed', roomSnapshot(room, player.id));
+    }
+
+    startRoundTimer(room);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SPA fallback: serve index.html for non-API routes in production
+// ---------------------------------------------------------------------------
+
+app.get('*', (_req, res) => {
+  const indexPath = path.join(clientDistPath, 'index.html');
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      res.status(404).json({ error: 'Not found' });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Periodic cleanup
+// ---------------------------------------------------------------------------
+
+setInterval(() => {
+  cleanupRooms();
+}, 10 * 60 * 1000); // Every 10 minutes
+
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
+
+httpServer.listen(PORT, () => {
+  console.log(`🃏 קלפים נגד הקהילה server running on port ${PORT}`);
+});
+
+export { app, httpServer, io };

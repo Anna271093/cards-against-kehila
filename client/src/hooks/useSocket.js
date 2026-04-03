@@ -1,0 +1,171 @@
+import { useEffect, useRef, useCallback } from 'react';
+import { io } from 'socket.io-client';
+import useGameStore from '../store/gameStore';
+
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || '';
+
+let socketInstance = null;
+
+function getSocket() {
+  if (!socketInstance) {
+    socketInstance = io(SERVER_URL, {
+      autoConnect: false,
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+    });
+  }
+  return socketInstance;
+}
+
+export default function useSocket() {
+  const store = useGameStore();
+  const storeRef = useRef(store);
+  storeRef.current = store;
+
+  const socket = getSocket();
+
+  useEffect(() => {
+    if (!socket.connected) {
+      socket.connect();
+    }
+
+    const s = storeRef;
+
+    socket.on('connect', () => {
+      s.current.setConnected(true);
+      // Save socket ID as playerId
+      useGameStore.setState({ playerId: socket.id });
+
+      // Try to rejoin if we had a room
+      const { roomCode, playerName } = useGameStore.getState();
+      if (roomCode && playerName) {
+        socket.emit('rejoin_room', { roomCode, playerName });
+      }
+    });
+
+    socket.on('disconnect', () => {
+      s.current.setConnected(false);
+    });
+
+    socket.on('room_created', (snapshot) => {
+      useGameStore.setState({ playerId: socket.id, isHost: true });
+      s.current.updateFromSnapshot(snapshot);
+      s.current.setScreen('lobby');
+    });
+
+    socket.on('player_joined', (snapshot) => {
+      s.current.updateFromSnapshot(snapshot);
+    });
+
+    socket.on('settings_updated', (snapshot) => {
+      s.current.updateFromSnapshot(snapshot);
+    });
+
+    socket.on('game_started', (snapshot) => {
+      useGameStore.setState({ playerId: socket.id });
+      s.current.updateFromSnapshot(snapshot);
+    });
+
+    socket.on('new_round', (snapshot) => {
+      useGameStore.setState({ playerId: socket.id });
+      s.current.updateFromSnapshot(snapshot);
+    });
+
+    socket.on('card_submitted', ({ hand }) => {
+      s.current.markSubmitted(hand);
+    });
+
+    socket.on('player_submitted', ({ submitted, total }) => {
+      s.current.setSubmissionCount(submitted, total);
+    });
+
+    socket.on('all_submitted', ({ submissions }) => {
+      s.current.setSubmissions(submissions);
+      s.current.setScreen('judging');
+    });
+
+    socket.on('waiting_for_judge', () => {
+      s.current.setScreen('judging');
+    });
+
+    socket.on('round_winner', ({ winner, scoreboard, roomSnapshot }) => {
+      useGameStore.setState({
+        winnerThisRound: winner,
+        winningCards: winner.cards,
+        allSubmissions: roomSnapshot?.submissions || [],
+      });
+      s.current.setRoundWinner(winner, scoreboard);
+      if (roomSnapshot) s.current.updateFromSnapshot(roomSnapshot);
+    });
+
+    socket.on('game_over', ({ scoreboard, roomSnapshot }) => {
+      s.current.setGameOver(scoreboard);
+      if (roomSnapshot) s.current.updateFromSnapshot(roomSnapshot);
+    });
+
+    socket.on('game_reset', (snapshot) => {
+      s.current.updateFromSnapshot(snapshot);
+    });
+
+    socket.on('player_left', ({ playerName: name, roomSnapshot }) => {
+      if (roomSnapshot) s.current.updateFromSnapshot(roomSnapshot);
+    });
+
+    socket.on('player_reconnected', ({ roomSnapshot }) => {
+      if (roomSnapshot) s.current.updateFromSnapshot(roomSnapshot);
+    });
+
+    socket.on('rejoin_success', (snapshot) => {
+      useGameStore.setState({ playerId: socket.id });
+      s.current.updateFromSnapshot(snapshot);
+    });
+
+    socket.on('judge_changed', (snapshot) => {
+      useGameStore.setState({ playerId: socket.id });
+      s.current.updateFromSnapshot(snapshot);
+    });
+
+    socket.on('timer_tick', ({ remaining }) => {
+      s.current.setTimerRemaining(remaining);
+    });
+
+    socket.on('round_skipped', () => {
+      // Timer expired, nobody submitted
+    });
+
+    socket.on('error_msg', ({ message }) => {
+      s.current.setError(message);
+    });
+
+    return () => {
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('room_created');
+      socket.off('player_joined');
+      socket.off('settings_updated');
+      socket.off('game_started');
+      socket.off('new_round');
+      socket.off('card_submitted');
+      socket.off('player_submitted');
+      socket.off('all_submitted');
+      socket.off('waiting_for_judge');
+      socket.off('round_winner');
+      socket.off('game_over');
+      socket.off('game_reset');
+      socket.off('player_left');
+      socket.off('player_reconnected');
+      socket.off('rejoin_success');
+      socket.off('judge_changed');
+      socket.off('timer_tick');
+      socket.off('round_skipped');
+      socket.off('error_msg');
+    };
+  }, [socket]);
+
+  const emit = useCallback((event, data) => {
+    socket.emit(event, data);
+  }, [socket]);
+
+  return { socket, emit };
+}
