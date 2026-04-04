@@ -261,7 +261,7 @@ function submittedCount(room) {
  */
 function nonJudgeCount(room) {
   if (room.gameMode === 'vote') {
-    return room.players.length;
+    return room.players.filter((p) => !p.isAI).length;
   }
   const judgeId = room.players[room.currentJudgeIndex]?.id;
   return room.players.filter((p) => p.id !== judgeId).length;
@@ -604,14 +604,14 @@ io.on('connection', (socket) => {
 
     room.votes[socket.id] = submissionIndex;
 
-    // Notify about vote count
+    // Notify about vote count (AI doesn't vote)
     const voteCount = Object.keys(room.votes).length;
-    const totalVoters = room.players.length;
+    const totalVoters = room.players.filter((p) => !p.isAI).length;
     io.to(roomCode).emit('vote_counted', { voteCount, totalVoters });
 
     socket.emit('vote_accepted');
 
-    // Check if all players voted
+    // Check if all human players voted
     if (voteCount >= totalVoters) {
       // Tally votes
       const tally = {};
