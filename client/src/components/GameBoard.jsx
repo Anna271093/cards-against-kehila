@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import useGameStore from '../store/gameStore';
 import BlackCard from './BlackCard';
 import WhiteCard from './WhiteCard';
@@ -19,15 +20,24 @@ export default function GameBoard({ emit }) {
   const selectCard = useGameStore((s) => s.selectCard);
   const canSwap = useGameStore((s) => s.canSwap);
   const gameMode = useGameStore((s) => s.gameMode);
+  const [customText, setCustomText] = useState('');
 
   const judge = players[currentJudgeIndex];
   const isJudge = gameMode === 'classic' && judge?.id === playerId;
   const myScore = players.find((p) => p.id === playerId)?.score || 0;
   const requiredPick = currentBlackCard?.pick || 1;
 
+  const hasCustomSelected = selectedCards.some(i => myHand[i]?.isCustom);
+
   const handleSubmit = () => {
     if (selectedCards.length !== requiredPick) return;
-    emit('submit_card', { roomCode, cardIndices: selectedCards });
+    if (hasCustomSelected && !customText.trim()) return;
+    emit('submit_card', {
+      roomCode,
+      cardIndices: selectedCards,
+      ...(hasCustomSelected ? { customText: customText.trim() } : {}),
+    });
+    setCustomText('');
   };
 
   const handleSwap = (cardIndex) => {
@@ -50,6 +60,15 @@ export default function GameBoard({ emit }) {
       <div className="mb-4 animate-scaleIn">
         <BlackCard card={currentBlackCard} />
       </div>
+
+      {/* Judge indicator (classic mode) */}
+      {gameMode === 'classic' && judge && !isJudge && (
+        <div className="text-center mb-3 px-1">
+          <span className="text-sm text-gold">
+            👑 השופט: <span className="font-bold">{judge.name}</span>
+          </span>
+        </div>
+      )}
 
       {/* Status bar */}
       <div className="flex items-center justify-between mb-4 px-1">
@@ -112,12 +131,28 @@ export default function GameBoard({ emit }) {
             </div>
           </div>
 
+          {/* Custom card input */}
+          {hasCustomSelected && (
+            <div className="mt-3 animate-slideUp">
+              <label className="text-sm text-gold mb-1 block">✏️ כתוב את התשובה שלך:</label>
+              <input
+                type="text"
+                value={customText}
+                onChange={(e) => setCustomText(e.target.value)}
+                maxLength={100}
+                placeholder="הקלד תשובה..."
+                className="w-full px-4 py-3 rounded-xl bg-card-white/10 border border-card-border text-white placeholder-muted text-right focus:outline-none focus:border-gold transition-colors"
+                dir="rtl"
+              />
+            </div>
+          )}
+
           {/* Submit button */}
           <div className="pt-4 sticky bottom-4">
             <button
               className="btn-gold w-full py-4 text-lg"
               onClick={handleSubmit}
-              disabled={selectedCards.length !== requiredPick}
+              disabled={selectedCards.length !== requiredPick || (hasCustomSelected && !customText.trim())}
             >
               שלח! 🎯
             </button>

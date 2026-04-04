@@ -19,6 +19,8 @@ export default function Lobby({ emit }) {
   const revealNames = useGameStore((s) => s.revealNames);
   const gameMode = useGameStore((s) => s.gameMode);
   const cardMode = useGameStore((s) => s.cardMode);
+  const allowAI = useGameStore((s) => s.allowAI);
+  const allowCustomCards = useGameStore((s) => s.allowCustomCards);
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -39,6 +41,8 @@ export default function Lobby({ emit }) {
       revealNames: key === 'revealNames' ? value : revealNames,
       gameMode: key === 'gameMode' ? value : gameMode,
       cardMode: key === 'cardMode' ? value : cardMode,
+      allowAI: key === 'allowAI' ? value : allowAI,
+      allowCustomCards: key === 'allowCustomCards' ? value : allowCustomCards,
     });
   };
 
@@ -199,7 +203,7 @@ export default function Lobby({ emit }) {
           </div>
 
           {/* Reveal names */}
-          <div>
+          <div className="mb-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -209,6 +213,38 @@ export default function Lobby({ emit }) {
               />
               <span className="text-sm text-white">חשיפת שמות בסוף סיבוב</span>
             </label>
+          </div>
+
+          {/* AI Player */}
+          <div className="mb-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={allowAI}
+                onChange={(e) => updateSetting('allowAI', e.target.checked)}
+                className="w-5 h-5 accent-gold"
+              />
+              <span className="text-sm text-white">🎲 הוסף שחקן אוטומטי</span>
+            </label>
+            <p className="text-xs text-secondary mt-1 mr-8">
+              שחקן שבוחר קלפים רנדומליים (לא יכול להיות שופט)
+            </p>
+          </div>
+
+          {/* Custom cards */}
+          <div>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={allowCustomCards}
+                onChange={(e) => updateSetting('allowCustomCards', e.target.checked)}
+                className="w-5 h-5 accent-gold"
+              />
+              <span className="text-sm text-white">✏️ קלף מותאם אישית</span>
+            </label>
+            <p className="text-xs text-secondary mt-1 mr-8">
+              כל שחקן מקבל קלף ריק שאפשר לכתוב בו תשובה בעצמך
+            </p>
           </div>
         </div>
       )}

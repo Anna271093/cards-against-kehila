@@ -56,6 +56,8 @@ const useGameStore = create((set, get) => ({
   revealNames: true,
   gameMode: 'classic',
   cardMode: 'keep',
+  allowAI: false,
+  allowCustomCards: false,
 
   // Player-specific
   myHand: [],
@@ -115,6 +117,8 @@ const useGameStore = create((set, get) => ({
       revealNames: snapshot.revealNames,
       gameMode: snapshot.gameMode || 'classic',
       cardMode: snapshot.cardMode || 'keep',
+      allowAI: snapshot.allowAI || false,
+      allowCustomCards: snapshot.allowCustomCards || false,
       roomCode: snapshot.roomCode || state.roomCode,
       isHost,
     };

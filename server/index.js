@@ -28,6 +28,7 @@ import {
   getScoreboard,
   autoSubmit,
   dealCards,
+  aiAutoSubmit,
 } from './gameLogic.js';
 
 // ---------------------------------------------------------------------------
@@ -154,8 +155,11 @@ function handleTimerExpiry(room) {
       }
 
       nextRound(room);
+      aiAutoSubmit(room);
       for (const player of room.players) {
-        io.to(player.id).emit('new_round', roomSnapshot(room, player.id));
+        if (!player.isAI) {
+          io.to(player.id).emit('new_round', roomSnapshot(room, player.id));
+        }
       }
       startRoundTimer(room);
     }, 3000);
@@ -220,6 +224,8 @@ function roomSnapshot(room, forPlayerId = null) {
     revealNames: room.revealNames,
     gameMode: room.gameMode,
     cardMode: room.cardMode,
+    allowAI: room.allowAI,
+    allowCustomCards: room.allowCustomCards,
     winnerThisRound: room.winnerThisRound,
     winningCards: room.winningCards,
     players: room.players.map((p) => ({
@@ -227,10 +233,11 @@ function roomSnapshot(room, forPlayerId = null) {
       name: p.name,
       score: p.score,
       hasSubmitted: p.hasSubmitted,
+      isAI: p.isAI || false,
       handCount: p.hand.length,
       // Only include the hand for the requesting player
       ...(forPlayerId && p.id === forPlayerId
-        ? { hand: p.hand.map((c) => ({ text: c.text })) }
+        ? { hand: p.hand.map((c) => ({ text: c.text, ...(c.isCustom ? { isCustom: true } : {}) })) }
         : {}),
     })),
   };
@@ -324,7 +331,7 @@ io.on('connection', (socket) => {
   });
 
   // ----- update_settings -----
-  socket.on('update_settings', ({ roomCode, maxRounds, timerSeconds, revealNames, gameMode, cardMode }) => {
+  socket.on('update_settings', ({ roomCode, maxRounds, timerSeconds, revealNames, gameMode, cardMode, allowAI, allowCustomCards }) => {
     if (rateLimited(socket.id)) return;
 
     const room = getRoom(roomCode);
@@ -357,6 +364,27 @@ io.on('connection', (socket) => {
     if (cardMode === 'keep' || cardMode === 'random') {
       room.cardMode = cardMode;
     }
+    if (typeof allowCustomCards === 'boolean') {
+      room.allowCustomCards = allowCustomCards;
+    }
+    if (typeof allowAI === 'boolean') {
+      room.allowAI = allowAI;
+      const AI_ID = '__ai__';
+      const hasAI = room.players.some(p => p.id === AI_ID);
+      if (allowAI && !hasAI) {
+        room.players.push({
+          id: AI_ID,
+          name: '🎲 שחקן אוטומטי',
+          score: 0,
+          hand: [],
+          hasSubmitted: false,
+          submittedCards: [],
+          isAI: true,
+        });
+      } else if (!allowAI && hasAI) {
+        room.players = room.players.filter(p => p.id !== AI_ID);
+      }
+    }
 
     io.to(roomCode).emit('settings_updated', roomSnapshot(room));
   });
@@ -385,9 +413,14 @@ io.on('connection', (socket) => {
 
     startGame(room);
 
+    // AI auto-submits immediately
+    aiAutoSubmit(room);
+
     // Send each player their private hand + the public game state
     for (const player of room.players) {
-      io.to(player.id).emit('game_started', roomSnapshot(room, player.id));
+      if (!player.isAI) {
+        io.to(player.id).emit('game_started', roomSnapshot(room, player.id));
+      }
     }
 
     // Start the round timer
@@ -395,7 +428,7 @@ io.on('connection', (socket) => {
   });
 
   // ----- submit_card -----
-  socket.on('submit_card', ({ roomCode, cardIndices }) => {
+  socket.on('submit_card', ({ roomCode, cardIndices, customText }) => {
     if (rateLimited(socket.id)) return;
 
     const room = getRoom(roomCode);
@@ -413,15 +446,16 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const result = submitCards(room, socket.id, cardIndices);
+    const result = submitCards(room, socket.id, cardIndices, customText);
     if (!result.success) {
       socket.emit('error_msg', { message: result.error });
       return;
     }
 
     // Acknowledge to the submitting player
+    const me = room.players.find((p) => p.id === socket.id);
     socket.emit('card_submitted', {
-      hand: room.players.find((p) => p.id === socket.id)?.hand.map((c) => ({ text: c.text })) || [],
+      hand: me?.hand.map((c) => ({ text: c.text, ...(c.isCustom ? { isCustom: true } : {}) })) || [],
     });
 
     // Notify room of submission count
@@ -485,7 +519,7 @@ io.on('connection', (socket) => {
 
     // Send updated hand back
     socket.emit('card_swapped', {
-      hand: player.hand.map((c) => ({ text: c.text })),
+      hand: player.hand.map((c) => ({ text: c.text, ...(c.isCustom ? { isCustom: true } : {}) })),
     });
   });
 
@@ -662,9 +696,14 @@ io.on('connection', (socket) => {
 
     nextRound(room);
 
+    // AI auto-submits immediately
+    aiAutoSubmit(room);
+
     // Send each player their updated hand privately
     for (const player of room.players) {
-      io.to(player.id).emit('new_round', roomSnapshot(room, player.id));
+      if (!player.isAI) {
+        io.to(player.id).emit('new_round', roomSnapshot(room, player.id));
+      }
     }
 
     // Start timer for the new round
@@ -725,11 +764,27 @@ io.on('connection', (socket) => {
     room._whiteDeck = null;
     room._submissionOrder = null;
 
+    // Remove AI player on reset (will be re-added from setting)
+    room.players = room.players.filter(p => !p.isAI);
+
     for (const player of room.players) {
       player.score = 0;
       player.hand = [];
       player.hasSubmitted = false;
       player.submittedCards = [];
+    }
+
+    // Re-add AI if setting is still on
+    if (room.allowAI) {
+      room.players.push({
+        id: '__ai__',
+        name: '🎲 שחקן אוטומטי',
+        score: 0,
+        hand: [],
+        hasSubmitted: false,
+        submittedCards: [],
+        isAI: true,
+      });
     }
 
     io.to(roomCode).emit('game_reset', roomSnapshot(room));

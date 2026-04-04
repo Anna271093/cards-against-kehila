@@ -59,6 +59,8 @@ export function createRoom(hostId, hostName) {
     votes: {},           // playerId -> submissionIndex (for vote mode)
     winnerThisRound: null,
     winningCards: null,
+    allowAI: false,
+    allowCustomCards: false,
   };
 
   rooms.set(roomCode, room);

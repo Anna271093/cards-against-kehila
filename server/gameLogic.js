@@ -19,6 +19,33 @@ export function shuffleArray(arr) {
 }
 
 /**
+ * Advance the judge index to the next non-AI player.
+ * @param {object} room
+ */
+function advanceJudgePastAI(room) {
+  const len = room.players.length;
+  for (let i = 0; i < len; i++) {
+    if (!room.players[room.currentJudgeIndex]?.isAI) break;
+    room.currentJudgeIndex = (room.currentJudgeIndex + 1) % len;
+  }
+}
+
+/**
+ * Auto-submit random card(s) for the AI player if present.
+ * @param {object} room
+ */
+export function aiAutoSubmit(room) {
+  for (const player of room.players) {
+    if (player.isAI && !player.hasSubmitted) {
+      // AI is never judge, so always submit
+      const judgeId = room.gameMode === 'vote' ? null : room.players[room.currentJudgeIndex]?.id;
+      if (player.id === judgeId) continue;
+      autoSubmit(room, player.id);
+    }
+  }
+}
+
+/**
  * Build the available card pools (excluding already-used cards), shuffle them,
  * deal initial hands, draw the first black card, and set the first judge.
  * @param {object} room
@@ -60,8 +87,20 @@ export function startGame(room) {
     dealCards(room, player.id, HAND_SIZE);
   }
 
+  // Add custom blank card to non-AI players if enabled
+  if (room.allowCustomCards) {
+    for (const player of room.players) {
+      if (!player.isAI) {
+        player.hand.push({ text: '\u270F\uFE0F \u05DB\u05EA\u05D5\u05D1 \u05EA\u05E9\u05D5\u05D1\u05D4 \u05DE\u05E9\u05DC\u05DA', isCustom: true });
+      }
+    }
+  }
+
   // Draw first black card
   drawBlackCard(room);
+
+  // Ensure AI is never judge
+  advanceJudgePastAI(room);
 
   room.state = 'playing';
 
@@ -133,9 +172,10 @@ export function dealCards(room, playerId, count) {
  * @param {object} room
  * @param {string} playerId
  * @param {number[]} cardIndices - Indices into the player's hand array (0-based)
+ * @param {string} [customText] - Custom text for blank card submission
  * @returns {{ success: boolean, error?: string }}
  */
-export function submitCards(room, playerId, cardIndices) {
+export function submitCards(room, playerId, cardIndices, customText) {
   const player = room.players.find((p) => p.id === playerId);
   if (!player) {
     return { success: false, error: 'שחקן לא נמצא' }; // Player not found
@@ -176,6 +216,16 @@ export function submitCards(room, playerId, cardIndices) {
   // Extract the submitted cards from the player's hand (in order of selection)
   // Sort indices descending so splicing doesn't shift remaining indices
   const cards = cardIndices.map((idx) => player.hand[idx]);
+
+  // Replace custom card text with player's custom text
+  if (customText && typeof customText === 'string') {
+    for (const card of cards) {
+      if (card.isCustom) {
+        card.text = customText.trim().slice(0, 100);
+      }
+    }
+  }
+
   const sortedIndicesDesc = [...cardIndices].sort((a, b) => b - a);
   for (const idx of sortedIndicesDesc) {
     player.hand.splice(idx, 1);
@@ -283,9 +333,10 @@ export function pickWinner(room, submissionIndex) {
 export function nextRound(room) {
   room.roundNumber += 1;
 
-  // Rotate judge
+  // Rotate judge (skip AI players)
   room.currentJudgeIndex =
     (room.currentJudgeIndex + 1) % room.players.length;
+  advanceJudgePastAI(room);
 
   // Reset submission state
   room.submissions = [];
@@ -305,10 +356,19 @@ export function nextRound(room) {
       player.hand = [];
       dealCards(room, player.id, HAND_SIZE);
     } else {
-      // Classic mode: keep hand, fill up to HAND_SIZE
-      const deficit = HAND_SIZE - player.hand.length;
+      // Classic mode: keep hand, fill up to HAND_SIZE (don't count custom card)
+      const nonCustomCount = player.hand.filter(c => !c.isCustom).length;
+      const deficit = HAND_SIZE - nonCustomCount;
       if (deficit > 0) {
         dealCards(room, player.id, deficit);
+      }
+    }
+
+    // Re-add custom blank card if enabled and player doesn't have one
+    if (room.allowCustomCards && !player.isAI) {
+      const hasCustom = player.hand.some(c => c.isCustom);
+      if (!hasCustom) {
+        player.hand.push({ text: '\u270F\uFE0F כתוב תשובה משלך', isCustom: true });
       }
     }
   }
