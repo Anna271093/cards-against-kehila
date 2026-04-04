@@ -2,6 +2,6 @@ services:
   - type: web
     name: cards-against-kehila
     runtime: node
-    plan: free
+    plan: starter
     buildCommand: npm install && cd server && npm install && cd ../client && npm install --include=dev && npm run build
     startCommand: cd server && node index.js
