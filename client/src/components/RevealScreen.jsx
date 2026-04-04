@@ -7,8 +7,10 @@ export default function RevealScreen({ emit }) {
   const isHost = useGameStore((s) => s.isHost);
   const currentBlackCard = useGameStore((s) => s.currentBlackCard);
   const winnerThisRound = useGameStore((s) => s.winnerThisRound);
+  const tieWinners = useGameStore((s) => s.tieWinners);
   const scoreboard = useGameStore((s) => s.scoreboard);
 
+  const isTie = tieWinners && tieWinners.length > 1;
   const winnerName = winnerThisRound?.playerName || 'אנונימי';
   const winningTexts = winnerThisRound?.cards?.map((c) => c.text) || [];
 
@@ -23,18 +25,43 @@ export default function RevealScreen({ emit }) {
   return (
     <div className="flex flex-col min-h-screen py-4 gap-4">
       {/* Winner announcement */}
-      <div className="text-center animate-slam">
-        <div className="text-4xl mb-2">🎉</div>
-        <h2 className="text-2xl font-secular text-gold">
-          הזוכה: {winnerName}!
-        </h2>
-        <p className="text-muted text-sm">+1 נקודה</p>
-      </div>
+      {isTie ? (
+        <div className="text-center animate-slam">
+          <div className="text-4xl mb-2">🤝</div>
+          <h2 className="text-2xl font-secular text-gold">תיקו!</h2>
+          <p className="text-white text-sm mt-1">
+            {tieWinners.map((w) => w.playerName || 'אנונימי').join(' ו')}
+          </p>
+          <p className="text-muted text-sm">+1 נקודה לכל אחד</p>
+        </div>
+      ) : (
+        <div className="text-center animate-slam">
+          <div className="text-4xl mb-2">🎉</div>
+          <h2 className="text-2xl font-secular text-gold">
+            הזוכה: {winnerName}!
+          </h2>
+          <p className="text-muted text-sm">+1 נקודה</p>
+        </div>
+      )}
 
-      {/* Black card with winning answer */}
-      <div className="animate-scaleIn" style={{ animationDelay: '0.2s' }}>
-        <BlackCard card={currentBlackCard} winningTexts={winningTexts} />
-      </div>
+      {/* Winning answers */}
+      {isTie ? (
+        <div className="flex flex-col gap-3 animate-scaleIn" style={{ animationDelay: '0.2s' }}>
+          <BlackCard card={currentBlackCard} />
+          {tieWinners.map((w, i) => (
+            <div key={i} className="bg-gold/10 border border-gold/30 rounded-xl p-3">
+              <p className="text-xs text-gold mb-1">{w.playerName || 'אנונימי'}:</p>
+              {w.cards.map((c, ci) => (
+                <p key={ci} className="text-white font-medium">{c.text}</p>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="animate-scaleIn" style={{ animationDelay: '0.2s' }}>
+          <BlackCard card={currentBlackCard} winningTexts={winningTexts} />
+        </div>
+      )}
 
       {/* Scoreboard */}
       <div className="animate-slideUp" style={{ animationDelay: '0.4s' }}>

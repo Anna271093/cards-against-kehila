@@ -173,11 +173,12 @@ export default function useSocket() {
       useGameStore.setState({ voteCount, totalVoters });
     });
 
-    socket.on('round_winner', ({ winner, scoreboard, roomSnapshot }) => {
+    socket.on('round_winner', ({ winner, winners, isTie, scoreboard, roomSnapshot }) => {
       useGameStore.setState({
         winnerThisRound: winner,
-        winningCards: winner.cards,
+        winningCards: winner?.cards,
         allSubmissions: roomSnapshot?.submissions || [],
+        tieWinners: isTie ? winners : null,
       });
       s.current.setRoundWinner(winner, scoreboard);
       if (roomSnapshot) s.current.updateFromSnapshot(roomSnapshot);

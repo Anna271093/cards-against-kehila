@@ -74,6 +74,7 @@ const useGameStore = create((set, get) => ({
   winnerThisRound: null,
   winningCards: null,
   allSubmissions: [],
+  tieWinners: null,
 
   // Scoreboard
   scoreboard: [],
@@ -218,6 +219,7 @@ const useGameStore = create((set, get) => ({
       winnerThisRound: null,
       winningCards: null,
       allSubmissions: [],
+      tieWinners: null,
       scoreboard: [],
       errorMessage: null,
     });

@@ -591,14 +591,39 @@ io.on('connection', (socket) => {
         }
       }
 
-      // Random tiebreak
-      const winningShuffledIdx = winnerIndices[Math.floor(Math.random() * winnerIndices.length)];
+      const isTie = winnerIndices.length > 1;
 
-      const result = pickWinner(room, winningShuffledIdx);
-      if (!result.success) return;
+      // Award point to ALL tied winners (or single winner)
+      const winners = [];
+      for (const shuffledIdx of winnerIndices) {
+        const originalIndex = room._submissionOrder[shuffledIdx];
+        const sub = room.submissions[originalIndex];
+        if (!sub) continue;
+
+        const player = room.players.find((p) => p.id === sub.playerId);
+        if (player) player.score += 1;
+
+        winners.push({
+          playerId: sub.playerId,
+          playerName: room.revealNames ? sub.playerName : null,
+          cards: sub.cards.map((c) => ({ text: c.text })),
+          score: player ? player.score : 0,
+        });
+      }
+
+      // Set room state to reveal (using first winner for backwards compat)
+      room.winnerThisRound = winners[0] ? {
+        playerId: winners[0].playerId,
+        playerName: winners[0].playerName,
+        cards: winners[0].cards,
+      } : null;
+      room.winningCards = winners[0]?.cards || null;
+      room.state = 'reveal';
 
       io.to(roomCode).emit('round_winner', {
-        winner: result.winner,
+        winner: winners[0] || null,
+        winners: isTie ? winners : undefined,
+        isTie,
         scoreboard: getScoreboard(room),
         roomSnapshot: roomSnapshot(room),
         voteResults: tally,
