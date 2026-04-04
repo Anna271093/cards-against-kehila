@@ -261,7 +261,7 @@ function submittedCount(room) {
  */
 function nonJudgeCount(room) {
   if (room.gameMode === 'vote') {
-    return room.players.filter((p) => !p.isAI).length;
+    return room.players.length;
   }
   const judgeId = room.players[room.currentJudgeIndex]?.id;
   return room.players.filter((p) => p.id !== judgeId).length;
