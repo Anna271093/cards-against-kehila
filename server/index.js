@@ -509,6 +509,12 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // Can't swap the custom card
+    if (player.hand[cardIndex]?.isCustom) {
+      socket.emit('error_msg', { message: 'אי אפשר להחליף את הקלף המותאם' });
+      return;
+    }
+
     // Remove the card from hand
     player.hand.splice(cardIndex, 1);
 

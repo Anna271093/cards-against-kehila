@@ -125,6 +125,17 @@ function drawBlackCard(room) {
 }
 
 /**
+ * Move custom card to the end of the player's hand (if present).
+ */
+function moveCustomCardToEnd(player) {
+  const idx = player.hand.findIndex((c) => c.isCustom);
+  if (idx !== -1 && idx !== player.hand.length - 1) {
+    const [card] = player.hand.splice(idx, 1);
+    player.hand.push(card);
+  }
+}
+
+/**
  * Deal white cards from the unused pool to a specific player.
  * @param {object} room
  * @param {string} playerId
@@ -163,6 +174,9 @@ export function dealCards(room, playerId, count) {
     player.hand.push(card);
     dealt.push(card);
   }
+
+  // Ensure custom card stays last
+  moveCustomCardToEnd(player);
 
   return dealt;
 }
@@ -427,10 +441,13 @@ export function autoSubmit(room, playerId) {
     return { success: false };
   }
 
-  // Pick random indices from the player's hand
-  const handIndices = player.hand.map((_, i) => i);
+  // Pick random indices from the player's hand (skip custom cards)
+  const handIndices = player.hand
+    .map((c, i) => ({ i, isCustom: c.isCustom }))
+    .filter((x) => !x.isCustom)
+    .map((x) => x.i);
   shuffleArray(handIndices);
-  const autoIndices = handIndices.slice(0, Math.min(requiredPick, available));
+  const autoIndices = handIndices.slice(0, Math.min(requiredPick, handIndices.length));
 
   return submitCards(room, playerId, autoIndices);
 }
