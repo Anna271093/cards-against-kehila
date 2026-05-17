@@ -6,9 +6,11 @@ export default function JudgeView({ emit }) {
   const roomCode = useGameStore((s) => s.roomCode);
   const playerId = useGameStore((s) => s.playerId);
   const players = useGameStore((s) => s.players);
+  const isHost = useGameStore((s) => s.isHost);
   const currentBlackCard = useGameStore((s) => s.currentBlackCard);
   const currentJudgeIndex = useGameStore((s) => s.currentJudgeIndex);
   const submissions = useGameStore((s) => s.submissions);
+  const submissionsReadOnly = useGameStore((s) => s.submissionsReadOnly);
   const roundNumber = useGameStore((s) => s.roundNumber);
   const maxRounds = useGameStore((s) => s.maxRounds);
   const gameMode = useGameStore((s) => s.gameMode);
@@ -21,6 +23,12 @@ export default function JudgeView({ emit }) {
   const isJudge = judge?.id === playerId;
   const isVoteMode = gameMode === 'vote';
   const myScore = players.find((p) => p.id === playerId)?.score || 0;
+  const canSkipJudge = isHost && !isVoteMode && !isJudge;
+
+  const handleSkipJudge = () => {
+    if (!window.confirm(`לדלג על השופט (${judge?.name})? הסיבוב יתחיל מחדש עם שופט חדש.`)) return;
+    emit('skip_judge', { roomCode });
+  };
 
   const handlePick = () => {
     if (selectedIndex == null) return;
@@ -32,8 +40,10 @@ export default function JudgeView({ emit }) {
     setSelectedIndex(null);
   };
 
-  // Non-judge waiting screen (classic mode only)
+  // Non-judge view (classic mode only)
   if (!isJudge && !isVoteMode) {
+    const showSubmissions = submissionsReadOnly && submissions.length > 0;
+
     return (
       <div className="flex flex-col min-h-screen py-4">
         <div className="flex items-center justify-between mb-4 px-1">
@@ -45,13 +55,50 @@ export default function JudgeView({ emit }) {
           <BlackCard card={currentBlackCard} />
         </div>
 
-        <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center">
-          <div className="text-5xl animate-pulse">🤔</div>
-          <h3 className="text-xl font-secular">השופט בוחר...</h3>
-          <p className="text-muted text-sm">
-            {judge?.name} בודק/ת את התשובות
-          </p>
-        </div>
+        {showSubmissions ? (
+          <>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-2xl">🤔</span>
+              <p className="text-sm text-muted">
+                <span className="text-gold font-medium">{judge?.name}</span> בוחר/ת את הזוכה ({submissions.length} תשובות)
+              </p>
+            </div>
+            <div className="flex-1 flex flex-col gap-3">
+              {submissions.map((sub, index) => (
+                <div
+                  key={index}
+                  className="text-right p-4 rounded-xl border-2 bg-card-white/5 border-card-border animate-slideUp"
+                  style={{ animationDelay: `${index * 0.1}s` }}
+                >
+                  {sub.cards.map((card, ci) => (
+                    <p key={ci} className="text-lg text-white font-medium">
+                      {sub.cards.length > 1 ? `${ci + 1}. ` : ''}{card.text}
+                    </p>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center">
+            <div className="text-5xl animate-pulse">🤔</div>
+            <h3 className="text-xl font-secular">השופט בוחר...</h3>
+            <p className="text-muted text-sm">
+              {judge?.name} בודק/ת את התשובות
+            </p>
+          </div>
+        )}
+
+        {canSkipJudge && (
+          <div className="pt-4">
+            <button
+              onClick={handleSkipJudge}
+              className="w-full py-3 text-sm font-medium rounded-xl bg-bg border border-card-border text-muted hover:text-white hover:border-muted transition-colors"
+            >
+              ⏭️ דלג על השופט
+            </button>
+          </div>
+        )}
 
         <div className="text-center mt-4 pb-2">
           <span className="text-xs text-secondary">קוד חדר: <span className="font-mono text-muted">{roomCode}</span></span>

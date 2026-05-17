@@ -21,6 +21,7 @@ export default function Lobby({ emit }) {
   const cardMode = useGameStore((s) => s.cardMode);
   const allowAI = useGameStore((s) => s.allowAI);
   const allowCustomCards = useGameStore((s) => s.allowCustomCards);
+  const showSubmissionsToAll = useGameStore((s) => s.showSubmissionsToAll);
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -43,6 +44,7 @@ export default function Lobby({ emit }) {
       cardMode: key === 'cardMode' ? value : cardMode,
       allowAI: key === 'allowAI' ? value : allowAI,
       allowCustomCards: key === 'allowCustomCards' ? value : allowCustomCards,
+      showSubmissionsToAll: key === 'showSubmissionsToAll' ? value : showSubmissionsToAll,
     });
   };
 
@@ -232,7 +234,7 @@ export default function Lobby({ emit }) {
           </div>
 
           {/* Custom cards */}
-          <div>
+          <div className="mb-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -246,6 +248,24 @@ export default function Lobby({ emit }) {
               כל שחקן מקבל קלף ריק שאפשר לכתוב בו תשובה בעצמך
             </p>
           </div>
+
+          {/* Show submissions to all (classic mode only) */}
+          {gameMode === 'classic' && (
+            <div>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showSubmissionsToAll}
+                  onChange={(e) => updateSetting('showSubmissionsToAll', e.target.checked)}
+                  className="w-5 h-5 accent-gold"
+                />
+                <span className="text-sm text-white">👀 כולם רואים את התשובות</span>
+              </label>
+              <p className="text-xs text-secondary mt-1 mr-8">
+                גם הלא-שופטים רואים את התשובות בזמן הבחירה (מומלץ למשחק מרחוק)
+              </p>
+            </div>
+          )}
         </div>
       )}
 

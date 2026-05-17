@@ -22,7 +22,7 @@ export function shuffleArray(arr) {
  * Advance the judge index to the next non-AI player.
  * @param {object} room
  */
-function advanceJudgePastAI(room) {
+export function advanceJudgePastAI(room) {
   const len = room.players.length;
   for (let i = 0; i < len; i++) {
     if (!room.players[room.currentJudgeIndex]?.isAI) break;

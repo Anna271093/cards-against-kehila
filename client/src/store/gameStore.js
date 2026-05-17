@@ -58,6 +58,7 @@ const useGameStore = create((set, get) => ({
   cardMode: 'keep',
   allowAI: false,
   allowCustomCards: false,
+  showSubmissionsToAll: false,
 
   // Player-specific
   myHand: [],
@@ -67,6 +68,7 @@ const useGameStore = create((set, get) => ({
 
   // Round state
   submissions: [],       // for judge or vote
+  submissionsReadOnly: false, // non-judge spectators see submissions but can't pick
   hasVoted: false,
   voteCount: 0,
   totalVoters: 0,
@@ -119,6 +121,7 @@ const useGameStore = create((set, get) => ({
       cardMode: snapshot.cardMode || 'keep',
       allowAI: snapshot.allowAI || false,
       allowCustomCards: snapshot.allowCustomCards || false,
+      showSubmissionsToAll: snapshot.showSubmissionsToAll || false,
       roomCode: snapshot.roomCode || state.roomCode,
       isHost,
     };

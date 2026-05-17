@@ -61,6 +61,7 @@ export function createRoom(hostId, hostName) {
     winningCards: null,
     allowAI: false,
     allowCustomCards: false,
+    showSubmissionsToAll: false, // when true (classic mode): non-judges see submissions read-only
   };
 
   rooms.set(roomCode, room);
@@ -155,6 +156,9 @@ export function removePlayer(roomCode, playerId) {
     return { removed: false, isEmpty: room.players.length === 0 };
   }
 
+  // Remember the judge index BEFORE the splice so we can compensate
+  const removedBeforeJudge = index < room.currentJudgeIndex;
+
   room.players.splice(index, 1);
 
   // If room is now empty, schedule cleanup
@@ -172,6 +176,12 @@ export function removePlayer(roomCode, playerId) {
 
   // Adjust judge index if needed (during a game)
   if (room.state !== 'lobby') {
+    // If a player BEFORE the judge was removed, decrement so we still point to the
+    // same judge (otherwise the splice shifts everyone up and the index points to
+    // a different player — this caused "judge suddenly changed mid-round").
+    if (removedBeforeJudge) {
+      room.currentJudgeIndex -= 1;
+    }
     // If the judge index is now out of bounds, wrap around
     if (room.currentJudgeIndex >= room.players.length) {
       room.currentJudgeIndex = room.currentJudgeIndex % room.players.length;

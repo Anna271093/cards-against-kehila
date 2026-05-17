@@ -29,6 +29,7 @@ import {
   autoSubmit,
   dealCards,
   aiAutoSubmit,
+  advanceJudgePastAI,
 } from './gameLogic.js';
 
 // ---------------------------------------------------------------------------
@@ -182,14 +183,17 @@ function transitionToJudging(room) {
       io.to(p.id).emit('all_submitted', { submissions: shuffledSubmissions, voteMode: true });
     });
   } else {
-    // Classic mode: send to judge only
+    // Classic mode: send to judge. Optionally send read-only copy to others.
     const judgeId = room.players[room.currentJudgeIndex]?.id;
     const submittedCount = room.submissions.length;
 
     io.to(judgeId).emit('all_submitted', { submissions: shuffledSubmissions });
 
     room.players.forEach((p) => {
-      if (p.id !== judgeId) {
+      if (p.id === judgeId || p.isAI) return;
+      if (room.showSubmissionsToAll) {
+        io.to(p.id).emit('all_submitted', { submissions: shuffledSubmissions, readOnly: true });
+      } else {
         io.to(p.id).emit('waiting_for_judge', { submittedCount });
       }
     });
@@ -200,6 +204,7 @@ function transitionToJudging(room) {
 // Disconnect grace period tracking
 // ---------------------------------------------------------------------------
 
+const DISCONNECT_GRACE_MS = 3 * 60 * 1000; // 3 minutes — covers iOS screen-lock and short absences
 const disconnectTimers = new Map(); // socketId -> { timeout, roomCode }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +231,7 @@ function roomSnapshot(room, forPlayerId = null) {
     cardMode: room.cardMode,
     allowAI: room.allowAI,
     allowCustomCards: room.allowCustomCards,
+    showSubmissionsToAll: room.showSubmissionsToAll,
     winnerThisRound: room.winnerThisRound,
     winningCards: room.winningCards,
     players: room.players.map((p) => ({
@@ -331,7 +337,7 @@ io.on('connection', (socket) => {
   });
 
   // ----- update_settings -----
-  socket.on('update_settings', ({ roomCode, maxRounds, timerSeconds, revealNames, gameMode, cardMode, allowAI, allowCustomCards }) => {
+  socket.on('update_settings', ({ roomCode, maxRounds, timerSeconds, revealNames, gameMode, cardMode, allowAI, allowCustomCards, showSubmissionsToAll }) => {
     if (rateLimited(socket.id)) return;
 
     const room = getRoom(roomCode);
@@ -366,6 +372,9 @@ io.on('connection', (socket) => {
     }
     if (typeof allowCustomCards === 'boolean') {
       room.allowCustomCards = allowCustomCards;
+    }
+    if (typeof showSubmissionsToAll === 'boolean') {
+      room.showSubmissionsToAll = showSubmissionsToAll;
     }
     if (typeof allowAI === 'boolean') {
       room.allowAI = allowAI;
@@ -739,6 +748,41 @@ io.on('connection', (socket) => {
     });
   });
 
+  // ----- skip_judge (host only) -----
+  socket.on('skip_judge', ({ roomCode }) => {
+    if (rateLimited(socket.id)) return;
+
+    const room = getRoom(roomCode);
+    if (!room) {
+      socket.emit('error_msg', { message: 'החדר לא נמצא' });
+      return;
+    }
+    if (room.hostId !== socket.id) {
+      socket.emit('error_msg', { message: 'רק המארח יכול לדלג על שופט' });
+      return;
+    }
+    if (room.state !== 'playing' && room.state !== 'judging') {
+      socket.emit('error_msg', { message: 'אפשר לדלג על שופט רק במהלך משחק' });
+      return;
+    }
+    if (room.gameMode === 'vote') {
+      socket.emit('error_msg', { message: 'אין שופט במצב הצבעה' });
+      return;
+    }
+    // Need at least 3 non-AI players to keep playing without the skipped one as judge
+    const humanCount = room.players.filter((p) => !p.isAI).length;
+    if (humanCount < 3) {
+      socket.emit('error_msg', { message: 'צריך לפחות 3 שחקנים אנושיים כדי לדלג על שופט' });
+      return;
+    }
+
+    // Rotate to next judge (skip AI)
+    room.currentJudgeIndex = (room.currentJudgeIndex + 1) % room.players.length;
+    advanceJudgePastAI(room);
+
+    restartRoundWithCurrentJudge(room);
+  });
+
   // ----- new_game -----
   socket.on('new_game', ({ roomCode }) => {
     if (rateLimited(socket.id)) return;
@@ -803,11 +847,10 @@ io.on('connection', (socket) => {
     const room = getRoomByPlayerId(socket.id);
     if (!room) return;
 
-    // Grace period: wait 45 seconds before removing
     const timeout = setTimeout(() => {
       handlePlayerRemoval(socket.id, room.roomCode);
       disconnectTimers.delete(socket.id);
-    }, 45000);
+    }, DISCONNECT_GRACE_MS);
 
     disconnectTimers.set(socket.id, { timeout, roomCode: room.roomCode });
   });
@@ -860,9 +903,12 @@ io.on('connection', (socket) => {
         const isVoteMode = room.gameMode === 'vote';
         const judgeId = room.players[room.currentJudgeIndex]?.id;
 
-        // In classic mode, only the judge sees submissions. In vote mode, everyone does.
-        if (isVoteMode || socket.id === judgeId) {
-          socket.emit('all_submitted', { submissions: shuffled, voteMode: isVoteMode });
+        if (isVoteMode) {
+          socket.emit('all_submitted', { submissions: shuffled, voteMode: true });
+        } else if (socket.id === judgeId) {
+          socket.emit('all_submitted', { submissions: shuffled });
+        } else if (room.showSubmissionsToAll) {
+          socket.emit('all_submitted', { submissions: shuffled, readOnly: true });
         }
       }
 
@@ -923,31 +969,40 @@ function handlePlayerRemoval(playerId, roomCode) {
 
   // If the judge disconnected mid-game, handle judge rotation
   if (wasJudge && (room.state === 'playing' || room.state === 'judging')) {
-    // The judge index was already adjusted by removePlayer.
-    // Reset current round submissions and restart.
-    room.submissions = [];
-    room._submissionOrder = null;
-    room.winnerThisRound = null;
-    room.winningCards = null;
-
-    for (const player of room.players) {
-      // Return submitted cards to hand
-      if (player.submittedCards.length > 0) {
-        player.hand.push(...player.submittedCards);
-      }
-      player.hasSubmitted = false;
-      player.submittedCards = [];
-    }
-
-    room.state = 'playing';
-
-    // Notify everyone of the new round state with a new judge
-    for (const player of room.players) {
-      io.to(player.id).emit('judge_changed', roomSnapshot(room, player.id));
-    }
-
-    startRoundTimer(room);
+    restartRoundWithCurrentJudge(room);
   }
+}
+
+/**
+ * Reset the current round (return submitted cards, clear submissions) and
+ * notify all players of the new judge. Used when the judge disconnects or
+ * when the host skips the current judge.
+ *
+ * Assumes room.currentJudgeIndex already points to the desired new judge.
+ */
+function restartRoundWithCurrentJudge(room) {
+  room.submissions = [];
+  room._submissionOrder = null;
+  room.winnerThisRound = null;
+  room.winningCards = null;
+  room.votes = {};
+
+  for (const player of room.players) {
+    if (player.submittedCards.length > 0) {
+      player.hand.push(...player.submittedCards);
+    }
+    player.hasSubmitted = false;
+    player.submittedCards = [];
+  }
+
+  room.state = 'playing';
+
+  for (const player of room.players) {
+    io.to(player.id).emit('judge_changed', roomSnapshot(room, player.id));
+  }
+
+  aiAutoSubmit(room);
+  startRoundTimer(room);
 }
 
 // ---------------------------------------------------------------------------

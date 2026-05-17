@@ -30,7 +30,9 @@ function getSocket() {
     socketInstance = io(SERVER_URL, {
       autoConnect: false,
       reconnection: true,
-      reconnectionAttempts: 15,
+      // ~2.5 min of automatic reconnect attempts before giving up — covers
+      // iOS Safari background suspension and short network drops.
+      reconnectionAttempts: 30,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
     });
@@ -153,8 +155,9 @@ export default function useSocket() {
       s.current.setSubmissionCount(submitted, total);
     });
 
-    socket.on('all_submitted', ({ submissions, voteMode }) => {
+    socket.on('all_submitted', ({ submissions, voteMode, readOnly }) => {
       s.current.setSubmissions(submissions);
+      useGameStore.setState({ submissionsReadOnly: !!readOnly });
       s.current.setScreen('judging');
       if (voteMode) {
         useGameStore.setState({ hasVoted: false });
@@ -162,6 +165,7 @@ export default function useSocket() {
     });
 
     socket.on('waiting_for_judge', () => {
+      useGameStore.setState({ submissionsReadOnly: false });
       s.current.setScreen('judging');
     });
 
@@ -234,8 +238,20 @@ export default function useSocket() {
       }
     });
 
+    // iOS Safari and other mobiles suspend the socket when the screen sleeps.
+    // When the tab becomes visible again, force an immediate reconnect attempt
+    // instead of waiting for the next reconnection-backoff tick.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!socket.connected) {
+        socket.connect();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       stopKeepAlive();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       socket.off('connect');
       socket.off('disconnect');
       socket.off('reconnect_failed');
